@@ -1,0 +1,25 @@
+services:
+  # ── FastAPI Backend ────────────────────────────────────────────────────────
+  - type: web
+    name: axon-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://axon-frontend.vercel.app
+      - key: AGENT_IMAGE
+        value: axon-agent-base:latest
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Note: The agent Docker execution layer requires a machine with Docker.
+  # On Render free tier, agent compute runs in DEMO mode (subprocess isolation).
+  # For full Docker-per-agent isolation, deploy to EC2 via infra/stacks/axon_stack.py

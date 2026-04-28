@@ -1,0 +1,37 @@
+name: Deploy Backend → Render
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - "render.yaml"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger Render deploy hook
+        if: ${{ vars.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: |
+          curl -X POST "${{ vars.RENDER_DEPLOY_HOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            --fail-with-body
+        continue-on-error: true
+
+      - name: Summary
+        run: |
+          echo "## Backend Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Backend auto-deploys from GitHub on Render.com." >> $GITHUB_STEP_SUMMARY
+          echo "Configure RENDER_DEPLOY_HOOK_URL in repo variables to trigger deploys." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Setup steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Go to [render.com/dashboard](https://dashboard.render.com)" >> $GITHUB_STEP_SUMMARY
+          echo "2. New > Web Service > connect GitHub repo \`suryadeevi-dev/axon\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Root Dir: \`backend\`, Runtime: Python, Build: \`pip install -r requirements.txt\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Set env vars: \`JWT_SECRET\`, \`ANTHROPIC_API_KEY\`, \`CORS_ORIGINS\`" >> $GITHUB_STEP_SUMMARY
