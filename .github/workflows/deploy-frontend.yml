@@ -37,11 +37,16 @@ jobs:
         working-directory: frontend
         env:
           DEPLOY_TARGET: gh-pages
-          # Override API URL: set to your Render backend URL after deploying
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || 'https://axon-api.onrender.com' }}
           NEXT_PUBLIC_WS_URL: ${{ vars.NEXT_PUBLIC_WS_URL || 'wss://axon-api.onrender.com' }}
           NODE_ENV: production
         run: npm run build
+
+      - name: SPA routing — copy agent shell as 404.html
+        # GitHub Pages serves 404.html for unknown paths; this makes deep-links work
+        run: |
+          cp frontend/out/agent/new/index.html frontend/out/404.html
+          touch frontend/out/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
