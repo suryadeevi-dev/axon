@@ -70,7 +70,7 @@ export default function AgentCard({ agent, onStart, onStop, onDelete, loading }:
         {agent.status === "running" ? (
           <Link
             href={`/agent/${agent.id}`}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-xs hover:bg-white transition-colors"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-xs hover:opacity-90 transition-colors"
           >
             <CircleDot size={12} />
             Open chat

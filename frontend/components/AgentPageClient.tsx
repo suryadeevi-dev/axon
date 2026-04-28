@@ -247,7 +247,7 @@ export default function AgentPageClient() {
                   disabled={!wsConnected}
                 />
                 <button onClick={sendMessage} disabled={!input.trim() || sending || !wsConnected}
-                  className="p-1.5 rounded-lg bg-axon-cyan text-axon-bg hover:bg-white transition-colors disabled:opacity-40">
+                  className="p-1.5 rounded-lg bg-axon-cyan text-axon-bg hover:opacity-90 transition-colors disabled:opacity-40">
                   <Send size={14} />
                 </button>
               </div>

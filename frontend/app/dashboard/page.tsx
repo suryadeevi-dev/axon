@@ -132,7 +132,7 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:bg-white transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:opacity-90 transition-colors"
           >
             <Plus size={14} />
             New agent
@@ -189,7 +189,7 @@ export default function DashboardPage() {
                   <button
                     type="submit"
                     disabled={creating}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:bg-white transition-colors disabled:opacity-60"
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:opacity-90 transition-colors disabled:opacity-60"
                   >
                     {creating && <Loader2 size={13} className="animate-spin" />}
                     {creating ? "Provisioning…" : "Provision"}
@@ -213,7 +213,7 @@ export default function DashboardPage() {
             <p className="text-sm text-axon-muted mb-4">No agents yet</p>
             <button
               onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:bg-white transition-colors"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:opacity-90 transition-colors"
             >
               <Plus size={14} />
               Provision your first agent
