@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg: #08080f;
+  --surface: #0f0f1a;
+  --border: #1e1e2e;
+  --cyan: #00d4ff;
+  --purple: #7c3aed;
+  --green: #00ff88;
+  --muted: #4a4a6a;
+  --text: #e2e2f0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Terminal text */
+.terminal {
+  font-family: 'Geist Mono', 'SFMono-Regular', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* Glow effects */
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+}
+.glow-cyan-text {
+  text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+}
+.glow-purple {
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+}
+
+/* Animated gradient border */
+@keyframes border-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.gradient-border {
+  background: linear-gradient(90deg, #00d4ff, #7c3aed, #00d4ff);
+  background-size: 200% auto;
+  animation: border-gradient 3s linear infinite;
+}
+
+/* Input focus ring */
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--cyan) !important;
+  box-shadow: 0 0 0 1px var(--cyan), 0 0 12px rgba(0, 212, 255, 0.1);
+}
+
+/* Button active press */
+button:active {
+  transform: scale(0.98);
+}

@@ -1,0 +1,24 @@
+# Env
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+
+# CDK
+infra/cdk.out/
+infra/.cdk.staging/
+
+# Misc
+.DS_Store
+*.log
