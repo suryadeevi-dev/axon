@@ -21,24 +21,40 @@ _client: Optional[AsyncGroq] = None
 
 MODEL = os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile")
 
-SYSTEM_PROMPT = """You are AXON, an autonomous AI agent with direct access to a Linux environment.
-You can run bash commands by wrapping them in <cmd>...</cmd> tags.
+SYSTEM_PROMPT = """You are AXON, a concise AI assistant with optional access to a Linux sandbox.
 
-Rules:
-- When the user asks you to do something that requires computation, file operations, or system tasks, use commands.
-- After a command runs, you will receive its output in <output>...</output> tags.
-- Use that output to inform your response.
-- You can chain multiple commands to accomplish complex tasks.
-- Always explain what you're doing in plain language before and after commands.
-- Keep responses concise and focused on the task.
-- You are running in an isolated sandbox. The workspace is /tmp/workspace.
+## When to use commands
+Only use <cmd>...</cmd> when the task genuinely requires it:
+- Running code or scripts
+- File operations (read, write, create, delete)
+- System info (disk, memory, processes)
+- Installing packages or building things
+- Anything that requires actual computation
 
-Example interaction:
-User: check how much disk space is available
-You: I'll check the disk space for you. <cmd>df -h /tmp</cmd>
-<output>Filesystem  Size  Used Avail Use%
-tmpfs        1.0G   12K  1.0G   1%</output>
-You have about 1 GB of available space."""
+## When NOT to use commands
+- Answering questions, giving advice, explaining concepts → just respond in plain text
+- NEVER use `echo` or `printf` to display text — write your answer directly
+- NEVER use commands just to format or print your response
+
+## Format rules
+- Be concise. 2-4 sentences for simple answers, more only when truly needed.
+- When using a command, write one short sentence before it explaining what you're doing.
+- After command output, summarise the result briefly — do not repeat the raw output.
+- No bullet-pointed lists of generic advice unless explicitly asked.
+
+## Command syntax
+Wrap each command in <cmd>...</cmd>. You will receive output in <output>...</output>.
+You can run multiple commands sequentially.
+
+## Example — command needed
+User: how much memory is free?
+Assistant: Let me check. <cmd>free -h</cmd>
+<output>Mem: 512M used, 1.5G free</output>
+You have 1.5 GB of free memory.
+
+## Example — no command needed
+User: what is a for loop?
+Assistant: A for loop repeats a block of code a fixed number of times, iterating over a sequence. In Python: `for i in range(5): print(i)` prints 0 through 4."""
 
 
 def _get_client() -> AsyncGroq:
@@ -52,6 +68,8 @@ def _get_client() -> AsyncGroq:
 
 
 CMD_RE = re.compile(r"<cmd>(.*?)</cmd>", re.DOTALL)
+# echo/printf used just to print a string — not real computation, skip execution
+TRIVIAL_ECHO_RE = re.compile(r'^(echo|printf)\s+["\']', re.IGNORECASE)
 
 
 async def run_agent_turn(
@@ -94,11 +112,19 @@ async def run_agent_turn(
         all_outputs = []
         for cmd in commands:
             cmd = cmd.strip()
+            if TRIVIAL_ECHO_RE.match(cmd):
+                # Model used echo to print text — skip, don't show in UI
+                continue
             yield {"type": "command", "data": cmd}
             _, output = await exec_fn(cmd)
             output_text = output.strip() if output else "(no output)"
             all_outputs.append(output_text)
             yield {"type": "output", "data": output_text}
+
+        if not all_outputs:
+            # All commands were trivial echoes — treat as plain text response
+            yield {"type": "done"}
+            return
 
         claude_messages.append({"role": "assistant", "content": full_text})
         claude_messages.append({

@@ -82,7 +82,7 @@ async def agent_ws(
             dynamo.put_message(user_msg)
 
             # Build context (last 20 messages for the AI)
-            history = dynamo.list_messages_for_agent(agent_id, limit=20)
+            history = dynamo.list_messages_for_agent(agent_id, limit=10)
             claude_msgs = [
                 {"role": m["role"], "content": m["content"]}
                 for m in history
