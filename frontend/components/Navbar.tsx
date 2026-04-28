@@ -7,6 +7,7 @@ import { useState } from "react";
 import { authApi } from "@/lib/api";
 import { clearAuth, getUser } from "@/lib/auth";
 import toast from "react-hot-toast";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export default function Navbar() {
   const router = useRouter();
@@ -25,12 +26,14 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="h-14 border-b border-axon-border bg-axon-bg/95 backdrop-blur-sm flex items-center px-6 gap-6">
-      <Link href="/dashboard" className="font-mono text-lg font-semibold text-white">
+    <nav className="h-14 border-b border-axon-border bg-axon-bg/95 backdrop-blur-sm flex items-center px-6 gap-4">
+      <Link href="/dashboard" className="font-mono text-lg font-semibold text-axon-text">
         AX<span className="text-axon-cyan">ON</span>
       </Link>
 
       <div className="flex-1" />
+
+      <ThemeToggle />
 
       <div className="relative">
         <button

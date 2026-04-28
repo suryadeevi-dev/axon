@@ -11,14 +11,14 @@ const config: Config = {
     extend: {
       colors: {
         axon: {
-          bg: "#08080f",
-          surface: "#0f0f1a",
-          border: "#1e1e2e",
-          cyan: "#00d4ff",
-          purple: "#7c3aed",
-          green: "#00ff88",
-          muted: "#4a4a6a",
-          text: "#e2e2f0",
+          bg:      "rgb(var(--axon-bg) / <alpha-value>)",
+          surface: "rgb(var(--axon-surface) / <alpha-value>)",
+          border:  "rgb(var(--axon-border) / <alpha-value>)",
+          cyan:    "rgb(var(--axon-cyan) / <alpha-value>)",
+          purple:  "rgb(var(--axon-purple) / <alpha-value>)",
+          green:   "rgb(var(--axon-green) / <alpha-value>)",
+          muted:   "rgb(var(--axon-muted) / <alpha-value>)",
+          text:    "rgb(var(--axon-text) / <alpha-value>)",
         },
       },
       fontFamily: {
@@ -26,34 +26,34 @@ const config: Config = {
         sans: ["'Inter'", "system-ui", "sans-serif"],
       },
       animation: {
-        "pulse-cyan": "pulse-cyan 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "slide-up": "slide-up 0.3s ease-out",
-        "fade-in": "fade-in 0.2s ease-out",
+        "pulse-cyan":   "pulse-cyan 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "slide-up":     "slide-up 0.3s ease-out",
+        "fade-in":      "fade-in 0.2s ease-out",
         "cursor-blink": "cursor-blink 1s step-end infinite",
       },
       keyframes: {
         "pulse-cyan": {
-          "0%, 100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(0,212,255,0.4)" },
-          "50%": { opacity: "0.8", boxShadow: "0 0 0 8px rgba(0,212,255,0)" },
+          "0%, 100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(var(--axon-cyan),0.4)" },
+          "50%":      { opacity: "0.8", boxShadow: "0 0 0 8px rgba(var(--axon-cyan),0)" },
         },
         "slide-up": {
-          "0%": { transform: "translateY(8px)", opacity: "0" },
-          "100%": { transform: "translateY(0)", opacity: "1" },
+          "0%":   { transform: "translateY(8px)", opacity: "0" },
+          "100%": { transform: "translateY(0)",   opacity: "1" },
         },
         "fade-in": {
-          "0%": { opacity: "0" },
+          "0%":   { opacity: "0" },
           "100%": { opacity: "1" },
         },
         "cursor-blink": {
           "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0" },
+          "50%":      { opacity: "0" },
         },
       },
       backgroundImage: {
         "grid-pattern":
-          "linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px)",
+          "linear-gradient(rgba(var(--axon-cyan),0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(var(--axon-cyan),0.04) 1px, transparent 1px)",
         "hero-glow":
-          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,212,255,0.15), transparent)",
+          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(var(--axon-cyan),0.15), transparent)",
       },
       backgroundSize: {
         "grid-sm": "32px 32px",

@@ -49,7 +49,7 @@ export default function LoginClient() {
     <div className="min-h-screen bg-axon-bg flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-block font-mono text-2xl font-semibold text-white">
+          <Link href="/" className="inline-block font-mono text-2xl font-semibold text-axon-text">
             AX<span className="text-axon-cyan">ON</span>
           </Link>
           <p className="mt-2 text-sm text-axon-muted">Sign in to your account</p>
@@ -68,7 +68,7 @@ export default function LoginClient() {
             <div>
               <label className="block text-xs text-axon-muted mb-1.5 font-mono uppercase tracking-wide">Email</label>
               <input type="email" autoComplete="email"
-                className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted transition-colors"
+                className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted transition-colors"
                 placeholder="you@example.com"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -79,14 +79,14 @@ export default function LoginClient() {
               <label className="block text-xs text-axon-muted mb-1.5 font-mono uppercase tracking-wide">Password</label>
               <div className="relative">
                 <input type={showPw ? "text" : "password"} autoComplete="current-password"
-                  className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted transition-colors pr-10"
+                  className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted transition-colors pr-10"
                   placeholder="••••••••"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   required
                 />
                 <button type="button" onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-axon-muted hover:text-white">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-axon-muted hover:text-axon-text">
                   {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>

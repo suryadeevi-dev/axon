@@ -185,7 +185,7 @@ export default function AgentPageClient() {
     <div className="min-h-screen bg-axon-bg flex flex-col">
       <Navbar />
       <div className="border-b border-axon-border px-6 py-3 flex items-center gap-4 bg-axon-surface">
-        <Link href="/dashboard" className="text-axon-muted hover:text-white transition-colors">
+        <Link href="/dashboard" className="text-axon-muted hover:text-axon-text transition-colors">
           <ArrowLeft size={16} />
         </Link>
         <div className="flex items-center gap-2">
@@ -195,7 +195,7 @@ export default function AgentPageClient() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-axon-muted">{wsConnected ? "Connected" : "Reconnecting…"}</span>
-          <button onClick={connectWS} className="p-1.5 rounded text-axon-muted hover:text-white" title="Reconnect">
+          <button onClick={connectWS} className="p-1.5 rounded text-axon-muted hover:text-axon-text" title="Reconnect">
             <RotateCcw size={12} />
           </button>
         </div>
@@ -204,7 +204,7 @@ export default function AgentPageClient() {
       <div className="flex border-b border-axon-border bg-axon-bg px-6">
         {(["chat", "terminal"] as Tab[]).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${activeTab === tab ? "border-axon-cyan text-axon-cyan" : "border-transparent text-axon-muted hover:text-white"}`}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${activeTab === tab ? "border-axon-cyan text-axon-cyan" : "border-transparent text-axon-muted hover:text-axon-text"}`}
           >
             {tab === "chat" ? <MessageSquare size={12} /> : <Terminal size={12} />}
             {tab === "chat" ? "Chat" : "Terminal"}
@@ -226,7 +226,7 @@ export default function AgentPageClient() {
                   <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-sm">
                     {["Write and run a Python hello world", "Check available disk space", "Clone a GitHub repo and list its files", "Install and run htop"].map((s) => (
                       <button key={s} onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                        className="text-left px-3 py-2 rounded-lg border border-axon-border bg-axon-surface text-xs text-axon-muted hover:text-white hover:border-axon-muted transition-colors"
+                        className="text-left px-3 py-2 rounded-lg border border-axon-border bg-axon-surface text-xs text-axon-muted hover:text-axon-text hover:border-axon-muted transition-colors"
                       >{s}</button>
                     ))}
                   </div>
@@ -239,7 +239,7 @@ export default function AgentPageClient() {
             <div className="border-t border-axon-border px-6 py-4">
               <div className="flex items-center gap-3 rounded-xl border border-axon-border bg-axon-surface px-4 py-2.5 focus-within:border-axon-cyan/50 transition-colors">
                 <input ref={inputRef}
-                  className="flex-1 bg-transparent text-sm text-white placeholder-axon-muted outline-none"
+                  className="flex-1 bg-transparent text-sm text-axon-text placeholder-axon-muted outline-none"
                   placeholder="Tell your agent what to do…"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

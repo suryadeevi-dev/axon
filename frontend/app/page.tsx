@@ -50,7 +50,7 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-axon-border bg-axon-bg/80 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <span className="font-mono text-xl font-semibold tracking-wider text-white">
+          <span className="font-mono text-xl font-semibold tracking-wider text-axon-text">
             AX<span className="text-axon-cyan">ON</span>
           </span>
           <div className="flex items-center gap-4">
@@ -137,7 +137,7 @@ export default function LandingPage() {
                     <span className="text-axon-cyan">{line.text}</span>
                   )}
                   {line.type === "cmd" && (
-                    <span className="text-white">{line.text}</span>
+                    <span className="text-axon-text">{line.text}</span>
                   )}
                   {line.type === "out" && (
                     <span className="text-axon-muted">{line.text}</span>

@@ -46,7 +46,7 @@ export default function CallbackClient() {
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 mb-4">
             <AlertCircle size={20} className="text-red-400" />
           </div>
-          <p className="text-sm font-medium text-white mb-1">Sign-in failed</p>
+          <p className="text-sm font-medium text-axon-text mb-1">Sign-in failed</p>
           <p className="text-xs text-axon-muted mb-6">{error}</p>
           <button onClick={() => router.push("/login")}
             className="px-5 py-2 rounded-lg bg-axon-cyan text-axon-bg text-sm font-semibold hover:bg-white transition-colors">

@@ -37,7 +37,7 @@ export default function SignupPage() {
     <div className="min-h-screen bg-axon-bg flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-block font-mono text-2xl font-semibold text-white">
+          <Link href="/" className="inline-block font-mono text-2xl font-semibold text-axon-text">
             AX<span className="text-axon-cyan">ON</span>
           </Link>
           <p className="mt-2 text-sm text-axon-muted">Create your account</p>
@@ -62,7 +62,7 @@ export default function SignupPage() {
                 <label className="block text-xs text-axon-muted mb-1.5 font-mono uppercase tracking-wide">{label}</label>
                 <input
                   type={type} autoComplete={key === "email" ? "email" : "name"}
-                  className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted transition-colors"
+                  className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted transition-colors"
                   placeholder={ph}
                   value={form[key]}
                   onChange={(e) => setForm({ ...form, [key]: e.target.value })}
@@ -76,7 +76,7 @@ export default function SignupPage() {
               <div className="relative">
                 <input
                   type={showPw ? "text" : "password"} autoComplete="new-password"
-                  className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted transition-colors pr-10"
+                  className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted transition-colors pr-10"
                   placeholder="min 8 characters"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -93,7 +93,7 @@ export default function SignupPage() {
               <label className="block text-xs text-axon-muted mb-1.5 font-mono uppercase tracking-wide">Confirm password</label>
               <input
                 type={showPw ? "text" : "password"} autoComplete="new-password"
-                className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted transition-colors"
+                className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted transition-colors"
                 placeholder="repeat password"
                 value={form.confirm}
                 onChange={(e) => setForm({ ...form, confirm: e.target.value })}

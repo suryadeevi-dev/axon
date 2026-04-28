@@ -18,7 +18,7 @@ export default function GoogleSignInButton({ label = "Continue with Google", dis
       type="button"
       onClick={handleClick}
       disabled={disabled}
-      className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border border-axon-border bg-axon-bg hover:bg-axon-surface hover:border-axon-muted transition-all text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed group"
+      className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border border-axon-border bg-axon-bg hover:bg-axon-surface hover:border-axon-muted transition-all text-sm font-medium text-axon-text disabled:opacity-50 disabled:cursor-not-allowed group"
     >
       {/* Google "G" logo — inline SVG, no external dependency */}
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">

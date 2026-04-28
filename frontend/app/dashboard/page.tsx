@@ -147,7 +147,7 @@ export default function DashboardPage() {
                 <h2 className="font-semibold">Provision new agent</h2>
                 <button
                   onClick={() => setShowCreate(false)}
-                  className="text-axon-muted hover:text-white"
+                  className="text-axon-muted hover:text-axon-text"
                 >
                   <X size={16} />
                 </button>
@@ -160,7 +160,7 @@ export default function DashboardPage() {
                   </label>
                   <input
                     autoFocus
-                    className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted"
+                    className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted"
                     placeholder="e.g. build-bot, data-cruncher"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
@@ -172,7 +172,7 @@ export default function DashboardPage() {
                     Description (optional)
                   </label>
                   <input
-                    className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-axon-muted"
+                    className="w-full bg-axon-bg border border-axon-border rounded-lg px-4 py-2.5 text-sm text-axon-text placeholder-axon-muted"
                     placeholder="What does this agent do?"
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
@@ -182,7 +182,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setShowCreate(false)}
-                    className="flex-1 py-2.5 rounded-lg border border-axon-border text-sm text-axon-muted hover:text-white hover:border-axon-muted transition-colors"
+                    className="flex-1 py-2.5 rounded-lg border border-axon-border text-sm text-axon-muted hover:text-axon-text hover:border-axon-muted transition-colors"
                   >
                     Cancel
                   </button>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
+import ThemeProvider from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "AXON — Your Agent. Your Cloud.",
@@ -19,22 +20,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <body className="bg-axon-bg text-axon-text antialiased">
-        {children}
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: "#0f0f1a",
-              color: "#e2e2f0",
-              border: "1px solid #1e1e2e",
-              fontFamily: "'Inter', sans-serif",
-            },
-            success: { iconTheme: { primary: "#00ff88", secondary: "#08080f" } },
-            error: { iconTheme: { primary: "#ff4444", secondary: "#08080f" } },
-          }}
-        />
+        <ThemeProvider>
+          {children}
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              style: {
+                background: "#111120",
+                color: "#e2e8f0",
+                border: "1px solid #1e1e32",
+                fontFamily: "'Inter', sans-serif",
+              },
+              success: { iconTheme: { primary: "#34d399", secondary: "#0a0a12" } },
+              error:   { iconTheme: { primary: "#ff4444", secondary: "#0a0a12" } },
+            }}
+          />
+        </ThemeProvider>
       </body>
     </html>
   );
