@@ -204,7 +204,7 @@ async def google_callback(code: str = "", error: str = ""):
 
     # Use hash fragment so token never hits server logs
     redirect_url = (
-        f"{FRONTEND_URL}/auth/callback"
+        f"{FRONTEND_URL}/callback"
         f"?token={jwt_token}"
         f"&user={user_b64}"
     )
