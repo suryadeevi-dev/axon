@@ -1,23 +1,25 @@
 """
-AI service: drives the agent using Claude.
+AI service: drives the agent using Llama 3.3 70B via Groq (free tier).
 
 The agent loop:
 1. User sends a message
-2. Claude reasons about it and decides whether to run a command
-3. If a command: execute it in the agent's container, feed output back to Claude
-4. Repeat until Claude produces a final text response
-5. Stream every token and every command/output event over the WebSocket
+2. LLM reasons and optionally emits <cmd>...</cmd> tags
+3. Commands execute in the agent's sandbox; output fed back to LLM
+4. Repeat until LLM produces a final text response (no more commands)
+5. Stream every token and command/output event over the WebSocket
 """
 
 import re
 import logging
 import os
 from typing import AsyncGenerator, Optional
-from anthropic import AsyncAnthropic
+from groq import AsyncGroq
 
 log = logging.getLogger(__name__)
 
-_client: Optional[AsyncAnthropic] = None
+_client: Optional[AsyncGroq] = None
+
+MODEL = os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile")
 
 SYSTEM_PROMPT = """You are AXON, an autonomous AI agent with direct access to a Linux environment.
 You can run bash commands by wrapping them in <cmd>...</cmd> tags.
@@ -29,23 +31,23 @@ Rules:
 - You can chain multiple commands to accomplish complex tasks.
 - Always explain what you're doing in plain language before and after commands.
 - Keep responses concise and focused on the task.
-- You are running as a non-root user in an isolated container. The workspace is /home/axon/workspace.
+- You are running in an isolated sandbox. The workspace is /tmp/workspace.
 
 Example interaction:
 User: check how much disk space is available
-You: I'll check the disk space for you. <cmd>df -h /home/axon/workspace</cmd>
+You: I'll check the disk space for you. <cmd>df -h /tmp</cmd>
 <output>Filesystem  Size  Used Avail Use%
-/dev/sda1    20G  1.2G  18G   7%</output>
-You have about 18 GB of available disk space."""
+tmpfs        1.0G   12K  1.0G   1%</output>
+You have about 1 GB of available space."""
 
 
-def _get_client() -> AsyncAnthropic:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
-        _client = AsyncAnthropic(api_key=api_key)
+            raise RuntimeError("GROQ_API_KEY not set — add it in Render → Environment")
+        _client = AsyncGroq(api_key=api_key)
     return _client
 
 
@@ -54,55 +56,54 @@ CMD_RE = re.compile(r"<cmd>(.*?)</cmd>", re.DOTALL)
 
 async def run_agent_turn(
     messages: list[dict],
-    exec_fn,  # Callable[[str], tuple[int, str]]
+    exec_fn,
 ) -> AsyncGenerator[dict, None]:
     """
-    Drive one full turn of the agent:
-    - streams tokens as {"type": "token", "data": str}
-    - emits commands as {"type": "command", "data": str}
-    - emits outputs as {"type": "output", "data": str}
-    - emits {"type": "done"} when complete
+    Drive one full agent turn, yielding WebSocket events:
+      {"type": "token",   "data": str}
+      {"type": "command", "data": str}
+      {"type": "output",  "data": str}
+      {"type": "done"}
     """
     client = _get_client()
-
     claude_messages = list(messages)
     max_iterations = 8
 
     for _ in range(max_iterations):
         full_text = ""
 
-        # Stream from Claude
-        async with client.messages.stream(
-            model="claude-3-5-haiku-20241022",
+        stream = await client.chat.completions.create(
+            model=MODEL,
             max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            messages=claude_messages,
-        ) as stream:
-            async for text in stream.text_stream:
-                full_text += text
-                yield {"type": "token", "data": text}
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + claude_messages,
+            stream=True,
+        )
 
-        # Check if there are commands in the response
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                full_text += delta
+                yield {"type": "token", "data": delta}
+
         commands = CMD_RE.findall(full_text)
 
         if not commands:
-            # Pure text response — we're done
             yield {"type": "done"}
             return
 
-        # Execute each command and collect outputs
         all_outputs = []
         for cmd in commands:
             cmd = cmd.strip()
             yield {"type": "command", "data": cmd}
-
-            exit_code, output = await exec_fn(cmd)
+            _, output = await exec_fn(cmd)
             output_text = output.strip() if output else "(no output)"
-            all_outputs.append(f"<output>{output_text}</output>")
+            all_outputs.append(output_text)
             yield {"type": "output", "data": output_text}
 
-        # Feed results back to Claude as an assistant + tool-result turn
         claude_messages.append({"role": "assistant", "content": full_text})
-        claude_messages.append({"role": "user", "content": "\n".join(all_outputs)})
+        claude_messages.append({
+            "role": "user",
+            "content": "\n".join(f"<output>{o}</output>" for o in all_outputs),
+        })
 
     yield {"type": "done"}

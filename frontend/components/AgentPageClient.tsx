@@ -69,7 +69,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 export default function AgentPageClient() {
   const router = useRouter();
   const params = useParams();
-  const agentId = params?.id as string;
+  // On GitHub Pages, useParams() returns static build-time params (id="new").
+  // The real agent UUID lives in the actual URL path — read it from there.
+  const agentId = (() => {
+    if (typeof window === "undefined") return params?.id as string;
+    const segs = window.location.pathname.split("/").filter(Boolean);
+    const last = segs[segs.length - 1];
+    return last || (params?.id as string);
+  })();
 
   const [agentName, setAgentName] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
