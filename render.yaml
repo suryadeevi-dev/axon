@@ -22,7 +22,7 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: GOOGLE_REDIRECT_URI
-        sync: false
+        value: https://axon-api.onrender.com/api/auth/google/callback
       - key: FRONTEND_URL
         value: https://suryadeevi-dev.github.io/axon
     healthCheckPath: /health
