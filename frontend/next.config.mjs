@@ -1,9 +1,9 @@
-import type { NextConfig } from "next";
+
 
 const isProd = process.env.NODE_ENV === "production";
 const isGhPages = process.env.DEPLOY_TARGET === "gh-pages";
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   output: isGhPages ? "export" : "standalone",
   // GitHub Pages deploys to /axon/ subdirectory
   basePath: isGhPages ? "/axon" : "",
