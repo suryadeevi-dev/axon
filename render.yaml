@@ -14,9 +14,17 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: https://axon-frontend.vercel.app
+        value: https://suryadeevi-dev.github.io
       - key: AGENT_IMAGE
         value: axon-agent-base:latest
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: FRONTEND_URL
+        value: https://suryadeevi-dev.github.io/axon
     healthCheckPath: /health
     autoDeploy: true
 
