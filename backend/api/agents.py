@@ -47,7 +47,7 @@ async def get_agent(agent_id: str, user: UserPublic = Depends(current_user)):
         agent["status"] = live_status
         dynamo.update_agent_status(agent_id, live_status)
 
-    history = dynamo.list_messages_for_agent(agent_id, limit=200)
+    history = dynamo.list_messages_for_agent(agent_id, limit=500)
     return {"agent": agent, "history": history}
 
 

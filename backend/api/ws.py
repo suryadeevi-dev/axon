@@ -16,7 +16,10 @@ Protocol (server → client):
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
+
+_CMD_TAG_RE = re.compile(r"<cmd>.*?</cmd>", re.DOTALL)
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
@@ -98,24 +101,52 @@ async def agent_ws(
             async def exec_cmd(cmd: str) -> tuple[int, str]:
                 return await asyncio.to_thread(docker_service.exec_command, agent_id, cmd, 30, container_id)
 
-            # Run agent turn
+            # Run agent turn — collect all events for persistence
             assistant_text = ""
+            side_records: list[dict] = []  # command + output records
+            seq = 0  # ensures unique timestamps within one turn
+
             async for event in ai_service.run_agent_turn(claude_msgs, exec_cmd):
                 await websocket.send_json(event)
+                seq += 1
+                ts = f"{datetime.utcnow().isoformat()}.{seq:04d}"
+
                 if event["type"] == "token":
                     assistant_text += event["data"]
+                elif event["type"] == "command":
+                    side_records.append({
+                        "id": f"cmd-{datetime.utcnow().timestamp()}-{seq}",
+                        "agent_id": agent_id,
+                        "role": "assistant",
+                        "type": "command",
+                        "content": event["data"],
+                        "timestamp": ts,
+                    })
+                elif event["type"] == "output":
+                    side_records.append({
+                        "id": f"out-{datetime.utcnow().timestamp()}-{seq}",
+                        "agent_id": agent_id,
+                        "role": "assistant",
+                        "type": "output",
+                        "content": event["data"],
+                        "timestamp": ts,
+                    })
 
-            # Persist assistant response
-            if assistant_text:
-                asst_msg = {
+            # Persist commands + outputs (preserve order relative to user msg)
+            for record in side_records:
+                dynamo.put_message(record)
+
+            # Persist assistant text — strip <cmd> tags for clean display
+            clean_text = _CMD_TAG_RE.sub("", assistant_text).strip()
+            if clean_text:
+                dynamo.put_message({
                     "id": f"asst-{datetime.utcnow().timestamp()}",
                     "agent_id": agent_id,
                     "role": "assistant",
                     "type": "text",
-                    "content": assistant_text,
+                    "content": clean_text,
                     "timestamp": datetime.utcnow().isoformat(),
-                }
-                dynamo.put_message(asst_msg)
+                })
 
     except WebSocketDisconnect:
         log.info("WS disconnected for agent %s", agent_id)
