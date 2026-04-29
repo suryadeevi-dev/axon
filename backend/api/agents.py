@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime
-import uuid
 import asyncio
+import logging
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 
 from models.agent import AgentCreate, Agent
 from models.user import UserPublic
@@ -10,6 +11,7 @@ from db import dynamo
 from services import docker_service, ec2_service
 from observability import agent_ops
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
@@ -52,19 +54,42 @@ async def get_agent(agent_id: str, user: UserPublic = Depends(current_user)):
 
 
 @router.post("/{agent_id}/start")
-async def start_agent(agent_id: str, user: UserPublic = Depends(current_user)):
+async def start_agent(
+    agent_id: str,
+    background_tasks: BackgroundTasks,
+    user: UserPublic = Depends(current_user),
+):
     agent = _get_owned(agent_id, user.id)
     dynamo.update_agent_status(agent_id, "starting")
     try:
+        # launch() returns immediately after RunInstances (EC2) or container start (Docker).
+        # No SSM wait here — that runs in the background so the HTTP response is instant.
         container_id = await asyncio.to_thread(
-            docker_service.start, agent_id, agent.get("container_id")
+            docker_service.launch, agent_id, agent.get("container_id")
         )
-        dynamo.update_agent_status(agent_id, "running", container_id)
+        dynamo.update_agent_status(agent_id, "starting", container_id)
+
+        if docker_service._USE_EC2:
+            background_tasks.add_task(_wait_ec2_ready, agent_id, container_id)
+        else:
+            dynamo.update_agent_status(agent_id, "running", container_id)
+
         agent_ops.labels(operation="start").inc()
-        return {"status": "running", "container_id": container_id}
+        return {"status": "starting", "container_id": container_id}
     except Exception as e:
         dynamo.update_agent_status(agent_id, "error")
         raise HTTPException(status_code=500, detail=f"Failed to start agent: {e}")
+
+
+async def _wait_ec2_ready(agent_id: str, instance_id: str):
+    """Background task: poll SSM until the EC2 instance is ready, then mark running."""
+    try:
+        await asyncio.to_thread(ec2_service.wait_ready, instance_id)
+        dynamo.update_agent_status(agent_id, "running")
+        log.info("EC2 agent %s ready (instance %s)", agent_id, instance_id)
+    except Exception as e:
+        log.warning("EC2 readiness wait failed for agent %s: %s", agent_id, e)
+        dynamo.update_agent_status(agent_id, "error")
 
 
 @router.post("/{agent_id}/stop")

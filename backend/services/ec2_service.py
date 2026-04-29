@@ -85,24 +85,22 @@ def _s3():
 
 # ── Instance lifecycle ─────────────────────────────────────────────────────────
 
-def provision(agent_id: str, existing_instance_id: Optional[str] = None) -> str:
+def launch(agent_id: str, existing_instance_id: Optional[str] = None) -> str:
     """
-    Return a running instance ID for the agent.
-    Reconnects to an existing stopped instance before launching a new one.
+    Start or create an EC2 instance and return its ID immediately.
+    Does NOT wait for the SSM agent — call wait_ready() in a background task.
     """
-    if existing_instance_id:
-        if not _is_ec2_id(existing_instance_id):
-            log.info("container_id %r is not an EC2 ID (legacy mode) — provisioning new instance", existing_instance_id)
-        else:
-            current = status(existing_instance_id)
-            if current == "running":
-                return existing_instance_id
-            if current == "stopped":
-                log.info("EC2 starting stopped instance %s for agent %s", existing_instance_id, agent_id)
-                _ec2().start_instances(InstanceIds=[existing_instance_id])
-                _wait_for_ssm(existing_instance_id)
-                return existing_instance_id
-            # terminated / unknown — fall through to launch a new one
+    if existing_instance_id and _is_ec2_id(existing_instance_id):
+        current = status(existing_instance_id)
+        if current == "running":
+            return existing_instance_id
+        if current == "stopped":
+            _ec2().start_instances(InstanceIds=[existing_instance_id])
+            log.info("EC2 instance starting: %s for agent %s", existing_instance_id, agent_id)
+            return existing_instance_id
+        # terminated / unknown — fall through to new instance
+    elif existing_instance_id:
+        log.info("container_id %r is not an EC2 ID (legacy mode) — launching new instance", existing_instance_id)
 
     resp = _ec2().run_instances(
         ImageId=_AMI_ID,
@@ -124,7 +122,7 @@ def provision(agent_id: str, existing_instance_id: Optional[str] = None) -> str:
         BlockDeviceMappings=[{
             "DeviceName": "/dev/sda1",
             "Ebs": {
-                "VolumeSize": 8,            # GB — free tier: 30 GB total across all volumes
+                "VolumeSize": 8,
                 "VolumeType": "gp3",
                 "DeleteOnTermination": True,
             },
@@ -132,12 +130,22 @@ def provision(agent_id: str, existing_instance_id: Optional[str] = None) -> str:
     )
     instance_id = resp["Instances"][0]["InstanceId"]
     log.info("EC2 instance launched: %s for agent %s", instance_id, agent_id)
-    _wait_for_ssm(instance_id)
+    return instance_id
+
+
+def wait_ready(instance_id: str, timeout: int = _PROVISION_TIMEOUT):
+    """Block until the SSM agent on the instance registers. Run in a background task."""
+    _wait_for_ssm(instance_id, timeout)
+
+
+def provision(agent_id: str, existing_instance_id: Optional[str] = None) -> str:
+    """Launch + wait for SSM. Use only where blocking is acceptable."""
+    instance_id = launch(agent_id, existing_instance_id)
+    wait_ready(instance_id)
     return instance_id
 
 
 def _wait_for_ssm(instance_id: str, timeout: int = _PROVISION_TIMEOUT):
-    """Block until the SSM agent on the instance registers with Systems Manager."""
     deadline = time.monotonic() + timeout
     log.info("Waiting for SSM registration on %s (up to %ds)", instance_id, timeout)
     while time.monotonic() < deadline:

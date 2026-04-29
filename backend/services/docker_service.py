@@ -132,6 +132,18 @@ def provision(agent_id: str, existing_container_id: Optional[str] = None) -> str
     return f"subprocess:{agent_id[:12]}"
 
 
+def launch(agent_id: str, existing_container_id: Optional[str] = None) -> str:
+    """
+    Start compute and return the container/instance ID immediately.
+    In EC2 mode this does NOT wait for SSM — the caller must schedule
+    ec2_service.wait_ready() as a background task before running commands.
+    For Docker/subprocess the operation is fast so no background task is needed.
+    """
+    if _USE_EC2:
+        return ec2_service.launch(agent_id, existing_container_id)
+    return provision(agent_id, existing_container_id)
+
+
 def start(agent_id: str, container_id: Optional[str] = None) -> Optional[str]:
     if _USE_EC2:
         if container_id:
