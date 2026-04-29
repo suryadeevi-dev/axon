@@ -94,7 +94,9 @@ A dedicated `/ws/agents/{id}/pty` endpoint bridges the browser terminal to the E
 
 Base64 encoding is used because PTY output is binary (ANSI escape codes, control characters) and must be safely carried inside JSON.
 
-An `asyncio.Queue` bridges the E2B SDK's synchronous `on_data` callback with the FastAPI async WebSocket sender.
+**AsyncSandbox required:** In e2b 1.x, the `on_data` callback is only accepted by `AsyncSandbox.pty.create()`, not the sync `Sandbox`. The PTY service uses `AsyncSandbox` directly (no `asyncio.to_thread` wrapper) and unwraps `PtyOutput.data` bytes before forwarding.
+
+**Sandbox lifecycle:** When an agent is stopped or deleted, `kill_sandbox(container_id)` is called to immediately teardown the E2B VM. This keeps E2B free-tier hours from being wasted on abandoned sandboxes.
 
 ### 3.7 Auth: JWT + bcrypt + Google OAuth
 

@@ -211,17 +211,17 @@ async def agent_pty(
                 try:
                     msg = json.loads(raw)
                     if msg.get("type") == "resize":
-                        e2b_service.resize_pty(agent_id, msg.get("cols", 80), msg.get("rows", 24))
+                        await e2b_service.resize_pty(agent_id, msg.get("cols", 80), msg.get("rows", 24))
                     elif msg.get("type") == "input":
-                        e2b_service.send_pty_input(agent_id, msg.get("data", ""))
+                        await e2b_service.send_pty_input(agent_id, msg.get("data", ""))
                 except json.JSONDecodeError:
                     # plain text = keystroke data
-                    e2b_service.send_pty_input(agent_id, raw)
+                    await e2b_service.send_pty_input(agent_id, raw)
         except WebSocketDisconnect:
             log.info("PTY disconnected for agent %s", agent_id)
         finally:
             forward_task.cancel()
-            e2b_service.kill_pty(agent_id)
+            await e2b_service.kill_pty(agent_id)
 
     except Exception as e:
         log.exception("PTY error for agent %s", agent_id)

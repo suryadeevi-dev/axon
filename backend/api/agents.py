@@ -66,16 +66,16 @@ async def start_agent(agent_id: str, user: UserPublic = Depends(current_user)):
 
 @router.post("/{agent_id}/stop")
 async def stop_agent(agent_id: str, user: UserPublic = Depends(current_user)):
-    _get_owned(agent_id, user.id)
-    await asyncio.to_thread(docker_service.stop, agent_id)
+    agent = _get_owned(agent_id, user.id)
+    await asyncio.to_thread(docker_service.stop, agent_id, agent.get("container_id"))
     dynamo.update_agent_status(agent_id, "stopped")
     return {"status": "stopped"}
 
 
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: str, user: UserPublic = Depends(current_user)):
-    _get_owned(agent_id, user.id)
-    await asyncio.to_thread(docker_service.remove, agent_id)
+    agent = _get_owned(agent_id, user.id)
+    await asyncio.to_thread(docker_service.remove, agent_id, agent.get("container_id"))
     dynamo.delete_agent(agent_id)
     return {"deleted": True}
 

@@ -128,9 +128,10 @@ def start(agent_id: str, container_id: Optional[str] = None) -> Optional[str]:
         return f"subprocess:{agent_id[:12]}"
 
 
-def stop(agent_id: str):
+def stop(agent_id: str, container_id: Optional[str] = None):
     if _USE_E2B:
-        return  # sandboxes time out naturally; no forced stop
+        e2b_service.kill_sandbox(container_id)
+        return
     if _USE_DOCKER:
         client = _client()
         try:
@@ -140,9 +141,10 @@ def stop(agent_id: str):
     # subprocess mode: no-op (process exits after each command anyway)
 
 
-def remove(agent_id: str):
+def remove(agent_id: str, container_id: Optional[str] = None):
     if _USE_E2B:
-        return  # sandbox expires on its own; no manual cleanup needed
+        e2b_service.kill_sandbox(container_id)
+        return
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)

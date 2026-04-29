@@ -4,10 +4,13 @@ E2B sandbox service — real isolated Linux containers, free tier.
 Each agent maps to one persistent E2B sandbox.
 sandbox_id is stored in DynamoDB/memory as container_id.
 
-Modes available (checked in order):
+Compute modes (checked in order):
   1. E2B  — if E2B_API_KEY is set
   2. Docker — if Docker socket is available
   3. Subprocess — fallback (Render free tier)
+
+PTY note: on_data callback is only accepted by AsyncSandbox.pty.create() in
+e2b 1.x; the sync Sandbox.pty.create() does not have that parameter.
 """
 
 import asyncio
@@ -18,9 +21,9 @@ from typing import Optional, Callable
 log = logging.getLogger(__name__)
 
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
-SANDBOX_TIMEOUT = int(os.getenv("E2B_SANDBOX_TIMEOUT", "3600"))  # 1 hour
+SANDBOX_TIMEOUT = int(os.getenv("E2B_SANDBOX_TIMEOUT", "3600"))
 
-# Active PTY sessions: agent_id → terminal object
+# Active PTY sessions: agent_id → terminal handle
 _pty_sessions: dict[str, object] = {}
 
 
@@ -28,19 +31,15 @@ def e2b_available() -> bool:
     return bool(E2B_API_KEY)
 
 
-def _connect_sandbox(sandbox_id: str):
-    """Reconnect to an existing sandbox. Raises if sandbox is gone."""
+# ── Sync helpers (used for exec / provision / kill) ──────────────────────────
+
+def _sync_connect(sandbox_id: str):
     from e2b import Sandbox
-    # e2b 1.x uses Sandbox.connect(); 0.x used Sandbox.reconnect()
-    connect_fn = getattr(Sandbox, "connect", None) or getattr(Sandbox, "reconnect", None)
-    if connect_fn is None:
-        raise RuntimeError("e2b SDK missing connect/reconnect method")
-    sbx = connect_fn(sandbox_id, api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
-    return sbx
+    fn = getattr(Sandbox, "connect", None) or getattr(Sandbox, "reconnect", None)
+    return fn(sandbox_id, api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
 
 
-def _new_sandbox():
-    """Spin up a fresh E2B sandbox."""
+def _sync_new():
     from e2b import Sandbox
     sbx = Sandbox(api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
     log.info("E2B sandbox created: %s", sbx.sandbox_id)
@@ -48,23 +47,17 @@ def _new_sandbox():
 
 
 def _get_sandbox(sandbox_id: Optional[str] = None) -> tuple[object, str]:
-    """
-    Returns (sandbox, actual_sandbox_id).
-    If sandbox_id is provided, reconnects. Falls back to new sandbox on expiry.
-    Callers must persist the returned sandbox_id if it differs from the input.
-    """
+    """Return (sandbox, actual_id). Creates new sandbox if expired."""
     if sandbox_id:
         try:
-            sbx = _connect_sandbox(sandbox_id)
-            return sbx, sandbox_id
+            return _sync_connect(sandbox_id), sandbox_id
         except Exception:
-            log.info("E2B sandbox %s expired or unreachable, provisioning new one", sandbox_id)
-    sbx = _new_sandbox()
+            log.info("E2B sandbox %s expired, provisioning new one", sandbox_id)
+    sbx = _sync_new()
     return sbx, sbx.sandbox_id
 
 
 def provision(sandbox_id: Optional[str] = None) -> str:
-    """Create or reconnect an E2B sandbox. Returns the (possibly new) sandbox_id."""
     sbx, actual_id = _get_sandbox(sandbox_id)
     try:
         sbx.commands.run("mkdir -p /home/user/workspace", timeout=10)
@@ -74,7 +67,6 @@ def provision(sandbox_id: Optional[str] = None) -> str:
 
 
 def exec_command(sandbox_id: str, command: str, timeout: int = 30) -> tuple[int, str]:
-    """Run a command in the sandbox, return (exit_code, output)."""
     try:
         sbx, _ = _get_sandbox(sandbox_id)
         result = sbx.commands.run(
@@ -88,7 +80,6 @@ def exec_command(sandbox_id: str, command: str, timeout: int = 30) -> tuple[int,
 
 
 def list_files(sandbox_id: str, path: str = "/home/user/workspace") -> list[dict]:
-    """List files in the sandbox filesystem."""
     try:
         sbx, _ = _get_sandbox(sandbox_id)
         entries = sbx.files.list(path)
@@ -102,14 +93,66 @@ def list_files(sandbox_id: str, path: str = "/home/user/workspace") -> list[dict
 
 
 def sandbox_status(sandbox_id: Optional[str]) -> str:
-    """Check if the sandbox is alive."""
     if not sandbox_id:
         return "stopped"
     try:
-        _connect_sandbox(sandbox_id)
+        _sync_connect(sandbox_id)
         return "running"
     except Exception:
         return "stopped"
+
+
+def kill_sandbox(sandbox_id: Optional[str]):
+    """Kill the E2B sandbox. Called when an agent is stopped or deleted."""
+    if not sandbox_id or not e2b_available():
+        return
+    try:
+        sbx = _sync_connect(sandbox_id)
+        sbx.kill()
+        log.info("E2B sandbox %s killed", sandbox_id)
+    except Exception as e:
+        log.info("E2B kill sandbox %s: %s", sandbox_id, e)
+
+
+# ── Async helpers (PTY — AsyncSandbox required for on_data callback) ─────────
+
+async def _async_connect(sandbox_id: str):
+    from e2b import AsyncSandbox
+    fn = getattr(AsyncSandbox, "connect", None) or getattr(AsyncSandbox, "reconnect", None)
+    return await fn(sandbox_id, api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
+
+
+async def _async_new():
+    from e2b import AsyncSandbox
+    create_fn = getattr(AsyncSandbox, "create", None)
+    if create_fn:
+        sbx = await create_fn(api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
+    else:
+        sbx = await AsyncSandbox(api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
+    log.info("E2B async sandbox created: %s", sbx.sandbox_id)
+    return sbx
+
+
+async def _get_async_sandbox(sandbox_id: Optional[str] = None) -> tuple[object, str]:
+    if sandbox_id:
+        try:
+            return await _async_connect(sandbox_id), sandbox_id
+        except Exception:
+            log.info("E2B PTY: sandbox %s expired, provisioning new one", sandbox_id)
+    sbx = await _async_new()
+    return sbx, sbx.sandbox_id
+
+
+def _make_pty_size(cols: int, rows: int):
+    try:
+        from e2b import PtySize
+        return PtySize(cols=cols, rows=rows)
+    except (ImportError, TypeError):
+        try:
+            from e2b import PtySize
+            return PtySize(rows, cols)
+        except Exception:
+            return {"cols": cols, "rows": rows}
 
 
 async def start_pty(
@@ -120,51 +163,70 @@ async def start_pty(
     rows: int = 24,
 ) -> tuple[object, str]:
     """
-    Start an interactive PTY session in the sandbox.
-    on_data is called with raw terminal bytes to forward to the browser.
-    Returns (terminal, actual_sandbox_id) — sandbox_id may differ if the
-    original expired and a new one was provisioned; caller should persist it.
+    Start an interactive PTY via AsyncSandbox (required for on_data callback).
+    Returns (terminal, actual_sandbox_id).
     """
-    def _start():
-        sbx, actual_id = _get_sandbox(sandbox_id)
-        # e2b 1.x: create() doesn't accept cols/rows; set size via resize() after
-        terminal = sbx.pty.create(
-            on_data=on_data,
-            timeout=SANDBOX_TIMEOUT,
-        )
+    sbx, actual_id = await _get_async_sandbox(sandbox_id)
+
+    # PtyOutput wraps raw bytes in e2b 1.x — unwrap before forwarding
+    def data_handler(output):
         try:
-            terminal.resize(cols=cols, rows=rows)
-        except Exception:
-            pass
-        terminal.send_input("cd /home/user/workspace && clear\n")
-        _pty_sessions[agent_id] = terminal
-        return terminal, actual_id
-
-    return await asyncio.to_thread(_start)
-
-
-def send_pty_input(agent_id: str, data: str):
-    """Forward keystrokes from the browser to the PTY."""
-    terminal = _pty_sessions.get(agent_id)
-    if terminal:
-        terminal.send_input(data)
-
-
-def resize_pty(agent_id: str, cols: int, rows: int):
-    """Resize the PTY when the browser terminal resizes."""
-    terminal = _pty_sessions.get(agent_id)
-    if terminal:
-        try:
-            terminal.resize(cols=cols, rows=rows)
+            raw = getattr(output, "data", output)
+            if isinstance(raw, str):
+                raw = raw.encode()
+            on_data(raw)
         except Exception:
             pass
 
+    size = _make_pty_size(cols, rows)
+    terminal = await sbx.pty.create(
+        size=size,
+        on_data=data_handler,
+        timeout=0,
+    )
 
-def kill_pty(agent_id: str):
-    """Close the PTY session (sandbox stays alive)."""
+    result = terminal.send_input("cd /home/user/workspace && clear\n")
+    if asyncio.iscoroutine(result):
+        await result
+
+    _pty_sessions[agent_id] = terminal
+    return terminal, actual_id
+
+
+async def send_pty_input(agent_id: str, data: str):
+    terminal = _pty_sessions.get(agent_id)
+    if terminal:
+        try:
+            result = terminal.send_input(data)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            pass
+
+
+async def resize_pty(agent_id: str, cols: int, rows: int):
+    terminal = _pty_sessions.get(agent_id)
+    if terminal:
+        try:
+            size = _make_pty_size(cols, rows)
+            result = terminal.resize(size)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            try:
+                result = terminal.resize(cols=cols, rows=rows)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                pass
+
+
+async def kill_pty(agent_id: str):
     terminal = _pty_sessions.pop(agent_id, None)
     if terminal:
         try:
-            terminal.kill()
+            result = terminal.kill()
+            if asyncio.iscoroutine(result):
+                await result
         except Exception:
             pass

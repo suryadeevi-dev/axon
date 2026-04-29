@@ -59,19 +59,19 @@ Neither                          →  subprocess (demo/fallback mode)
 ```bash
 git clone https://github.com/suryadeevi-dev/axon
 cd axon
-cp .env .env.local   # fill in keys — see Environment Variables below
 
-# Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+# Install dependencies
+make setup
 
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
-# → http://localhost:3000
+# Copy and fill in .env (at minimum: JWT_SECRET, GROQ_API_KEY)
+# E2B_API_KEY optional — falls back to subprocess mode without it
+# AWS creds optional — falls back to in-memory store without them
+
+# Terminal 1 — backend
+make backend   # → http://localhost:8000
+
+# Terminal 2 — frontend
+make frontend  # → http://localhost:3000
 ```
 
 ---
@@ -100,7 +100,7 @@ Creates: `axon-users`, `axon-agents`, `axon-messages` with required GSIs.
 
 ```
 axon/
-├── frontend/                    # Next.js 14 App Router (static export)
+├── frontend/                    # Next.js 14 App Router (static export → GitHub Pages)
 │   ├── app/
 │   │   ├── page.tsx             # Landing page
 │   │   ├── (auth)/login/        # Sign in
@@ -118,23 +118,24 @@ axon/
 │       ├── auth.ts              # JWT + cookie helpers
 │       └── ws.ts                # WebSocket client (auto-reconnect)
 │
-├── backend/                     # FastAPI (Python 3.11)
+├── backend/                     # FastAPI (Python 3.11) → Render
 │   ├── main.py                  # App entrypoint + CORS
 │   ├── api/
 │   │   ├── auth.py              # signup, login, Google OAuth callback
 │   │   ├── agents.py            # agent CRUD, start/stop, files
 │   │   └── ws.py                # chat WS + PTY WS endpoints
 │   ├── services/
-│   │   ├── ai_service.py        # Groq agent loop (stream tokens + exec cmds)
-│   │   ├── e2b_service.py       # E2B sandbox lifecycle + PTY
-│   │   └── docker_service.py    # Compute mode routing (E2B / Docker / subprocess)
+│   │   ├── ai_service.py        # Groq agent loop + rate-limit fallback
+│   │   ├── e2b_service.py       # E2B sandbox lifecycle + PTY (AsyncSandbox)
+│   │   └── docker_service.py    # Compute mode routing (E2B → Docker → subprocess)
 │   └── db/
 │       └── dynamo.py            # DynamoDB + in-memory fallback
 │
 ├── scripts/
 │   ├── create_dynamo_tables.py  # One-time DynamoDB table setup
-│   └── iam_dynamo_policy.json   # Least-privilege IAM policy template
+│   └── iam_dynamo_policy.json   # Least-privilege IAM policy (5 ops, 3 tables)
 │
+├── Makefile                     # Local dev shortcuts
 └── render.yaml                  # Render deployment config
 ```
 
