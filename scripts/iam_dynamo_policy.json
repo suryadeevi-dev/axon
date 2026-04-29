@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AxonDynamoAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/axon-users",
+        "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/axon-users/index/*",
+        "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/axon-agents",
+        "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/axon-agents/index/*",
+        "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/axon-messages",
+        "arn:aws:dynamodb:us-east-1:YOUR_ACCOUNT_ID:table/axon-messages/index/*"
+      ]
+    }
+  ]
+}

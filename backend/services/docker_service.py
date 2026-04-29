@@ -1,13 +1,9 @@
 """
-Agent execution service — dual mode:
+Agent execution service — three modes, checked in order:
 
-  DOCKER mode (default when Docker socket is available):
-    Each agent = isolated Docker container with persistent volume.
-
-  SUBPROCESS mode (fallback when Docker is unavailable):
-    Each agent = sandboxed subprocess in a per-agent temp directory.
-    Suitable for Render/Railway free tier and local dev without Docker.
-    No container-level isolation — treat as a trusted demo environment.
+  E2B mode     — if E2B_API_KEY is set (real isolated cloud sandbox, free tier)
+  DOCKER mode  — if Docker socket is available (local / EC2)
+  SUBPROCESS   — fallback for Render free tier (no isolation, demo only)
 """
 
 import logging
@@ -21,11 +17,12 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 # ── Mode detection ────────────────────────────────────────────────────────────
-_DOCKER_SOCKET = "/var/run/docker.sock"
 _FORCE_SUBPROCESS = os.getenv("AGENT_MODE", "").lower() == "subprocess"
 
+from services import e2b_service
+
 def _docker_available() -> bool:
-    if _FORCE_SUBPROCESS:
+    if _FORCE_SUBPROCESS or e2b_service.e2b_available():
         return False
     try:
         import docker
@@ -35,8 +32,15 @@ def _docker_available() -> bool:
     except Exception:
         return False
 
+_USE_E2B    = e2b_service.e2b_available() and not _FORCE_SUBPROCESS
 _USE_DOCKER = _docker_available()
-log.info("Agent mode: %s", "docker" if _USE_DOCKER else "subprocess")
+
+if _USE_E2B:
+    log.info("Agent mode: e2b (isolated cloud sandbox)")
+elif _USE_DOCKER:
+    log.info("Agent mode: docker")
+else:
+    log.info("Agent mode: subprocess (demo)")
 
 
 # ── Shared workspace dir for subprocess mode ──────────────────────────────────
@@ -76,7 +80,10 @@ if _USE_DOCKER:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def provision(agent_id: str) -> str:
+def provision(agent_id: str, existing_container_id: Optional[str] = None) -> str:
+    if _USE_E2B:
+        return e2b_service.provision(existing_container_id)
+
     if _USE_DOCKER:
         _ensure_network()
         client = _client()
@@ -103,7 +110,9 @@ def provision(agent_id: str) -> str:
         return f"subprocess:{agent_id[:12]}"
 
 
-def start(agent_id: str) -> Optional[str]:
+def start(agent_id: str, container_id: Optional[str] = None) -> Optional[str]:
+    if _USE_E2B:
+        return e2b_service.provision(container_id)
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)
@@ -120,6 +129,8 @@ def start(agent_id: str) -> Optional[str]:
 
 
 def stop(agent_id: str):
+    if _USE_E2B:
+        return  # sandboxes time out naturally; no forced stop
     if _USE_DOCKER:
         client = _client()
         try:
@@ -130,6 +141,8 @@ def stop(agent_id: str):
 
 
 def remove(agent_id: str):
+    if _USE_E2B:
+        return  # sandbox expires on its own; no manual cleanup needed
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)
@@ -148,7 +161,9 @@ def remove(agent_id: str):
             shutil.rmtree(workdir, ignore_errors=True)
 
 
-def exec_command(agent_id: str, command: str, timeout: int = 30) -> tuple[int, str]:
+def exec_command(agent_id: str, command: str, timeout: int = 30, container_id: Optional[str] = None) -> tuple[int, str]:
+    if _USE_E2B:
+        return e2b_service.exec_command(container_id or agent_id, command, timeout)
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)
@@ -185,7 +200,9 @@ def exec_command(agent_id: str, command: str, timeout: int = 30) -> tuple[int, s
             return 1, str(e)
 
 
-def status(agent_id: str) -> str:
+def status(agent_id: str, container_id: Optional[str] = None) -> str:
+    if _USE_E2B:
+        return e2b_service.sandbox_status(container_id)
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)

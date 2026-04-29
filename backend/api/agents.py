@@ -42,7 +42,7 @@ async def create_agent(body: AgentCreate, user: UserPublic = Depends(current_use
 async def get_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     agent = _get_owned(agent_id, user.id)
     # Refresh status
-    live_status = docker_service.status(agent_id)
+    live_status = docker_service.status(agent_id, agent.get("container_id"))
     if live_status != agent.get("status"):
         agent["status"] = live_status
         dynamo.update_agent_status(agent_id, live_status)
@@ -56,7 +56,7 @@ async def start_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     agent = _get_owned(agent_id, user.id)
     dynamo.update_agent_status(agent_id, "starting")
     try:
-        container_id = await asyncio.to_thread(docker_service.start, agent_id)
+        container_id = await asyncio.to_thread(docker_service.start, agent_id, agent.get("container_id"))
         dynamo.update_agent_status(agent_id, "running", container_id)
         return {"status": "running", "container_id": container_id}
     except Exception as e:
@@ -78,6 +78,16 @@ async def delete_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     await asyncio.to_thread(docker_service.remove, agent_id)
     dynamo.delete_agent(agent_id)
     return {"deleted": True}
+
+
+@router.get("/{agent_id}/files")
+async def list_agent_files(agent_id: str, path: str = "/home/user/workspace", user: UserPublic = Depends(current_user)):
+    agent = _get_owned(agent_id, user.id)
+    from services import e2b_service
+    if not e2b_service.e2b_available() or not agent.get("container_id"):
+        return {"files": []}
+    files = await asyncio.to_thread(e2b_service.list_files, agent["container_id"], path)
+    return {"files": files, "path": path}
 
 
 def _get_owned(agent_id: str, user_id: str) -> dict:

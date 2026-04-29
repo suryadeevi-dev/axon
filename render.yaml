@@ -13,6 +13,8 @@ services:
         generateValue: true
       - key: GROQ_API_KEY
         sync: false
+      - key: E2B_API_KEY
+        sync: false
       - key: CORS_ORIGINS
         value: https://suryadeevi-dev.github.io
       - key: AGENT_IMAGE

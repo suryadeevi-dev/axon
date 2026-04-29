@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Send, Loader2, Terminal, MessageSquare, RotateCcw } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +10,8 @@ import { AgentWebSocket, ChatMessage, WSEvent } from "@/lib/ws";
 import { agentsApi } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
 import toast from "react-hot-toast";
+
+const XTerminal = dynamic(() => import("@/components/XTerminal"), { ssr: false });
 
 type Tab = "chat" | "terminal";
 
@@ -80,15 +83,14 @@ export default function AgentPageClient() {
 
   const [agentName, setAgentName] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [terminalLines, setTerminalLines] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const [sandboxReady, setSandboxReady] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("chat");
 
   const wsRef = useRef<AgentWebSocket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const terminalEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const streamingMsgRef = useRef<string | null>(null);
 
@@ -107,15 +109,12 @@ export default function AgentPageClient() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [terminalLines]);
-
   const loadAgent = async () => {
     try {
       const { data } = await agentsApi.get(agentId);
       setAgentName(data.agent.name);
       if (data.history?.length) setMessages(data.history);
+      if (data.agent.container_id) setSandboxReady(true);
     } catch {
       toast.error("Failed to load agent");
       router.push("/dashboard");
@@ -125,6 +124,11 @@ export default function AgentPageClient() {
   const handleWSEvent = useCallback((event: WSEvent) => {
     const now = new Date().toISOString();
     switch (event.type) {
+      case "status": {
+        const s = event.data as { status?: string; container_id?: string };
+        if (s?.status === "running" || s?.container_id) setSandboxReady(true);
+        break;
+      }
       case "token": {
         const token = event.data as string;
         setMessages((prev) => {
@@ -141,7 +145,6 @@ export default function AgentPageClient() {
       case "command": {
         const cmd = event.data as string;
         setMessages((prev) => [...prev, { id: `cmd-${Date.now()}`, role: "assistant", type: "command", content: cmd, timestamp: now }]);
-        setTerminalLines((prev) => [...prev, `$ ${cmd}`]);
         streamingMsgRef.current = null;
         break;
       }
@@ -152,7 +155,6 @@ export default function AgentPageClient() {
           if (last?.type === "output") return [...prev.slice(0, -1), { ...last, content: last.content + out }];
           return [...prev, { id: `out-${Date.now()}`, role: "assistant", type: "output", content: out, timestamp: now }];
         });
-        setTerminalLines((prev) => [...prev, out]);
         streamingMsgRef.current = null;
         break;
       }
@@ -262,25 +264,16 @@ export default function AgentPageClient() {
             </div>
           </>
         ) : (
-          <div className="flex-1 overflow-y-auto bg-[#050508] p-5 font-mono text-xs leading-relaxed">
-            {terminalLines.length === 0 ? (
-              <div className="text-axon-muted">
-                <span className="text-axon-cyan">axon@node:{agentId?.slice(0, 6)}$ </span>
-                <span className="animate-[cursor-blink_1s_step-end_infinite] inline-block w-2 h-3 bg-axon-cyan ml-0.5 align-middle" />
-                <br /><span className="text-axon-muted/60">No output yet. Send a message in the Chat tab.</span>
-              </div>
+          <div className="flex-1 bg-[#050508]" style={{ minHeight: 0 }}>
+            {sandboxReady ? (
+              <XTerminal agentId={agentId} sandboxReady={sandboxReady} />
             ) : (
-              <>
-                {terminalLines.map((line, i) => (
-                  <div key={i} className={line.startsWith("$") ? "text-axon-cyan mt-2" : "text-axon-green"}>{line}</div>
-                ))}
-                <div className="flex items-center mt-2">
-                  <span className="text-axon-cyan">axon@node:{agentId?.slice(0, 6)}$ </span>
-                  <span className="inline-block w-2 h-3 bg-axon-cyan ml-0.5 align-middle animate-[cursor-blink_1s_step-end_infinite]" />
-                </div>
-              </>
+              <div className="flex flex-col items-center justify-center h-full text-center p-8 font-mono">
+                <Terminal size={32} className="text-axon-cyan mb-4 opacity-50" />
+                <p className="text-axon-muted text-sm mb-1">Sandbox not running</p>
+                <p className="text-axon-muted/60 text-xs">Start the agent from the dashboard to enable the interactive terminal.</p>
+              </div>
             )}
-            <div ref={terminalEndRef} />
           </div>
         )}
       </div>
