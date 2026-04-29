@@ -1,15 +1,16 @@
-import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
+
+from observability import setup_logging, setup_metrics, RequestIDMiddleware
+
+setup_logging()
 
 from api import auth, agents, ws
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
-)
+from services.docker_service import _USE_EC2, _USE_DOCKER
+from services.ec2_service import ec2_available
+from db.dynamo import _USE_DYNAMO
 
 ALLOWED_ORIGINS = os.getenv(
     "CORS_ORIGINS",
@@ -19,6 +20,7 @@ ALLOWED_ORIGINS = os.getenv(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
     logging.getLogger(__name__).info("AXON backend starting up")
     yield
     logging.getLogger(__name__).info("AXON backend shutting down")
@@ -31,6 +33,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -43,10 +46,18 @@ app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(ws.router)
 
+setup_metrics(app)
+
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "axon-api"}
+    return {
+        "status":       "ok",
+        "service":      "axon-api",
+        "compute_mode": "ec2" if _USE_EC2 else ("docker" if _USE_DOCKER else "subprocess"),
+        "db_mode":      "dynamodb" if _USE_DYNAMO else "in-memory",
+        "ec2_enabled":  ec2_available(),
+    }
 
 
 @app.get("/")

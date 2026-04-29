@@ -7,7 +7,8 @@ from models.agent import AgentCreate, Agent
 from models.user import UserPublic
 from api.auth import current_user
 from db import dynamo
-from services import docker_service
+from services import docker_service, ec2_service
+from observability import agent_ops
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -15,10 +16,9 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 @router.get("")
 async def list_agents(user: UserPublic = Depends(current_user)):
     agents = dynamo.list_agents_for_user(user.id)
-    # Refresh container status from Docker
     for a in agents:
         if a.get("container_id"):
-            live_status = docker_service.status(a["id"])
+            live_status = docker_service.status(a["id"], a.get("container_id"))
             if live_status != a.get("status"):
                 a["status"] = live_status
                 dynamo.update_agent_status(a["id"], live_status)
@@ -35,13 +35,13 @@ async def create_agent(body: AgentCreate, user: UserPublic = Depends(current_use
         status="stopped",
     )
     dynamo.put_agent(agent.model_dump())
+    agent_ops.labels(operation="create").inc()
     return {"agent": agent.model_dump()}
 
 
 @router.get("/{agent_id}")
 async def get_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     agent = _get_owned(agent_id, user.id)
-    # Refresh status
     live_status = docker_service.status(agent_id, agent.get("container_id"))
     if live_status != agent.get("status"):
         agent["status"] = live_status
@@ -56,8 +56,11 @@ async def start_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     agent = _get_owned(agent_id, user.id)
     dynamo.update_agent_status(agent_id, "starting")
     try:
-        container_id = await asyncio.to_thread(docker_service.start, agent_id, agent.get("container_id"))
+        container_id = await asyncio.to_thread(
+            docker_service.start, agent_id, agent.get("container_id")
+        )
         dynamo.update_agent_status(agent_id, "running", container_id)
+        agent_ops.labels(operation="start").inc()
         return {"status": "running", "container_id": container_id}
     except Exception as e:
         dynamo.update_agent_status(agent_id, "error")
@@ -69,6 +72,7 @@ async def stop_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     agent = _get_owned(agent_id, user.id)
     await asyncio.to_thread(docker_service.stop, agent_id, agent.get("container_id"))
     dynamo.update_agent_status(agent_id, "stopped")
+    agent_ops.labels(operation="stop").inc()
     return {"status": "stopped"}
 
 
@@ -77,17 +81,17 @@ async def delete_agent(agent_id: str, user: UserPublic = Depends(current_user)):
     agent = _get_owned(agent_id, user.id)
     await asyncio.to_thread(docker_service.remove, agent_id, agent.get("container_id"))
     dynamo.delete_agent(agent_id)
+    agent_ops.labels(operation="delete").inc()
     return {"deleted": True}
 
 
 @router.get("/{agent_id}/files")
-async def list_agent_files(agent_id: str, path: str = "/home/user/workspace", user: UserPublic = Depends(current_user)):
-    agent = _get_owned(agent_id, user.id)
-    from services import e2b_service
-    if not e2b_service.e2b_available() or not agent.get("container_id"):
-        return {"files": []}
-    files = await asyncio.to_thread(e2b_service.list_files, agent["container_id"], path)
-    return {"files": files, "path": path}
+async def list_agent_files(agent_id: str, user: UserPublic = Depends(current_user)):
+    _get_owned(agent_id, user.id)
+    if not docker_service._USE_EC2:
+        return {"files": [], "path": None}
+    files = ec2_service.list_s3_files(agent_id)
+    return {"files": files, "path": f"s3://{ec2_service._S3_BUCKET}/agents/{agent_id}/"}
 
 
 def _get_owned(agent_id: str, user_id: str) -> dict:

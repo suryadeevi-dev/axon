@@ -12,16 +12,18 @@ The agent loop:
 import re
 import logging
 import os
+import time
 from typing import AsyncGenerator, Optional
 from groq import AsyncGroq
+
+from observability import ai_tokens, ai_fallbacks, ai_turn_duration
 
 log = logging.getLogger(__name__)
 
 _client: Optional[AsyncGroq] = None
 
-# Primary model and fallback when daily token limit is hit
 MODEL_PRIMARY  = os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile")
-MODEL_FALLBACK = "llama-3.1-8b-instant"  # 500K TPD vs 100K on primary
+MODEL_FALLBACK = "llama-3.1-8b-instant"
 
 SYSTEM_PROMPT = """You are AXON, a concise AI assistant with optional access to a Linux sandbox.
 
@@ -70,7 +72,6 @@ def _get_client() -> AsyncGroq:
 
 
 CMD_RE = re.compile(r"<cmd>(.*?)</cmd>", re.DOTALL)
-# echo/printf used just to print a string — not real computation, skip execution
 TRIVIAL_ECHO_RE = re.compile(r'^(echo|printf)\s+["\']', re.IGNORECASE)
 
 
@@ -88,14 +89,15 @@ async def run_agent_turn(
     client = _get_client()
     claude_messages = list(messages)
     max_iterations = 8
+    turn_start = time.monotonic()
+    active_model = MODEL_PRIMARY
 
     for _ in range(max_iterations):
         full_text = ""
 
-        # Try primary model; fall back to faster model on rate-limit (429)
         try:
             stream = await client.chat.completions.create(
-                model=MODEL_PRIMARY,
+                model=active_model,
                 max_tokens=2048,
                 messages=[{"role": "system", "content": SYSTEM_PROMPT}] + claude_messages,
                 stream=True,
@@ -103,6 +105,8 @@ async def run_agent_turn(
         except Exception as e:
             if "rate_limit_exceeded" in str(e) or "429" in str(e):
                 log.warning("Primary model rate-limited, falling back to %s", MODEL_FALLBACK)
+                ai_fallbacks.inc()
+                active_model = MODEL_FALLBACK
                 yield {"type": "token", "data": f"*(rate limited — using {MODEL_FALLBACK})*\n\n"}
                 stream = await client.chat.completions.create(
                     model=MODEL_FALLBACK,
@@ -113,15 +117,20 @@ async def run_agent_turn(
             else:
                 raise
 
+        token_count = 0
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
                 full_text += delta
+                token_count += 1
                 yield {"type": "token", "data": delta}
+
+        ai_tokens.labels(model=active_model).inc(token_count)
 
         commands = CMD_RE.findall(full_text)
 
         if not commands:
+            ai_turn_duration.observe(time.monotonic() - turn_start)
             yield {"type": "done"}
             return
 
@@ -129,7 +138,6 @@ async def run_agent_turn(
         for cmd in commands:
             cmd = cmd.strip()
             if TRIVIAL_ECHO_RE.match(cmd):
-                # Model used echo to print text — skip, don't show in UI
                 continue
             yield {"type": "command", "data": cmd}
             _, output = await exec_fn(cmd)
@@ -138,7 +146,7 @@ async def run_agent_turn(
             yield {"type": "output", "data": output_text}
 
         if not all_outputs:
-            # All commands were trivial echoes — treat as plain text response
+            ai_turn_duration.observe(time.monotonic() - turn_start)
             yield {"type": "done"}
             return
 
@@ -148,4 +156,5 @@ async def run_agent_turn(
             "content": "\n".join(f"<output>{o}</output>" for o in all_outputs),
         })
 
+    ai_turn_duration.observe(time.monotonic() - turn_start)
     yield {"type": "done"}

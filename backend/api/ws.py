@@ -25,7 +25,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
 from api.auth import decode_token
 from db import dynamo
-from services import docker_service, ai_service, e2b_service
+from services import docker_service, ai_service
+from observability import ws_connections
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,7 +40,6 @@ async def agent_ws(
 ):
     await websocket.accept()
 
-    # Auth
     try:
         payload = decode_token(token)
         user_id = payload["sub"]
@@ -48,18 +48,17 @@ async def agent_ws(
         await websocket.close(code=4001)
         return
 
-    # Verify agent ownership
     agent = dynamo.get_agent(agent_id)
     if not agent or agent["user_id"] != user_id:
         await websocket.send_json({"type": "error", "data": "Agent not found"})
         await websocket.close(code=4004)
         return
 
-    # Send current status
-    live_status = docker_service.status(agent_id)
+    live_status = docker_service.status(agent_id, agent.get("container_id"))
     await websocket.send_json({"type": "status", "data": {"status": live_status}})
 
     log.info("WS connected for agent %s user %s", agent_id, user_id)
+    ws_connections.labels(ws_type="chat").inc()
 
     try:
         while True:
@@ -73,18 +72,16 @@ async def agent_ws(
             if not content:
                 continue
 
-            # Persist user message
             user_msg = {
-                "id": f"user-{datetime.utcnow().timestamp()}",
-                "agent_id": agent_id,
-                "role": "user",
-                "type": "text",
-                "content": content,
+                "id":        f"user-{datetime.utcnow().timestamp()}",
+                "agent_id":  agent_id,
+                "role":      "user",
+                "type":      "text",
+                "content":   content,
                 "timestamp": datetime.utcnow().isoformat(),
             }
             dynamo.put_message(user_msg)
 
-            # Build context (last 20 messages for the AI)
             history = dynamo.list_messages_for_agent(agent_id, limit=10)
             claude_msgs = [
                 {"role": m["role"], "content": m["content"]}
@@ -92,19 +89,19 @@ async def agent_ws(
                 if m["role"] in ("user", "assistant") and m.get("type") == "text"
             ]
 
-            # Ensure last message is from user
             if not claude_msgs or claude_msgs[-1]["role"] != "user":
                 claude_msgs.append({"role": "user", "content": content})
 
-            # Exec wrapper — passes sandbox/container ID for E2B mode
             container_id = agent.get("container_id")
-            async def exec_cmd(cmd: str) -> tuple[int, str]:
-                return await asyncio.to_thread(docker_service.exec_command, agent_id, cmd, 30, container_id)
 
-            # Run agent turn — collect all events for persistence
+            async def exec_cmd(cmd: str) -> tuple[int, str]:
+                return await asyncio.to_thread(
+                    docker_service.exec_command, agent_id, cmd, 30, container_id
+                )
+
             assistant_text = ""
-            side_records: list[dict] = []  # command + output records
-            seq = 0  # ensures unique timestamps within one turn
+            side_records: list[dict] = []
+            seq = 0
 
             async for event in ai_service.run_agent_turn(claude_msgs, exec_cmd):
                 await websocket.send_json(event)
@@ -115,36 +112,34 @@ async def agent_ws(
                     assistant_text += event["data"]
                 elif event["type"] == "command":
                     side_records.append({
-                        "id": f"cmd-{datetime.utcnow().timestamp()}-{seq}",
-                        "agent_id": agent_id,
-                        "role": "assistant",
-                        "type": "command",
-                        "content": event["data"],
+                        "id":        f"cmd-{datetime.utcnow().timestamp()}-{seq}",
+                        "agent_id":  agent_id,
+                        "role":      "assistant",
+                        "type":      "command",
+                        "content":   event["data"],
                         "timestamp": ts,
                     })
                 elif event["type"] == "output":
                     side_records.append({
-                        "id": f"out-{datetime.utcnow().timestamp()}-{seq}",
-                        "agent_id": agent_id,
-                        "role": "assistant",
-                        "type": "output",
-                        "content": event["data"],
+                        "id":        f"out-{datetime.utcnow().timestamp()}-{seq}",
+                        "agent_id":  agent_id,
+                        "role":      "assistant",
+                        "type":      "output",
+                        "content":   event["data"],
                         "timestamp": ts,
                     })
 
-            # Persist commands + outputs (preserve order relative to user msg)
             for record in side_records:
                 dynamo.put_message(record)
 
-            # Persist assistant text — strip <cmd> tags for clean display
             clean_text = _CMD_TAG_RE.sub("", assistant_text).strip()
             if clean_text:
                 dynamo.put_message({
-                    "id": f"asst-{datetime.utcnow().timestamp()}",
-                    "agent_id": agent_id,
-                    "role": "assistant",
-                    "type": "text",
-                    "content": clean_text,
+                    "id":        f"asst-{datetime.utcnow().timestamp()}",
+                    "agent_id":  agent_id,
+                    "role":      "assistant",
+                    "type":      "text",
+                    "content":   clean_text,
                     "timestamp": datetime.utcnow().isoformat(),
                 })
 
@@ -156,107 +151,5 @@ async def agent_ws(
             await websocket.send_json({"type": "error", "data": str(e)})
         except Exception:
             pass
-
-
-@router.websocket("/ws/agents/{agent_id}/pty")
-async def agent_pty(
-    websocket: WebSocket,
-    agent_id: str,
-    token: str = Query(...),
-    cols: int = Query(default=80),
-    rows: int = Query(default=24),
-):
-    """
-    Interactive PTY terminal (xterm.js ↔ E2B sandbox).
-    Only available when E2B_API_KEY is set.
-    Messages from browser: raw keystroke bytes (text frame)
-    Messages to browser:   {"type":"data","data":"<base64>"} — terminal output
-                           {"type":"resize","cols":n,"rows":n} — ack
-                           {"type":"error","data":"..."}
-    """
-    await websocket.accept()
-
-    if not e2b_service.e2b_available():
-        await websocket.send_json({"type": "error", "data": "PTY requires E2B — set E2B_API_KEY"})
-        await websocket.close()
-        return
-
-    try:
-        payload = decode_token(token)
-        user_id = payload["sub"]
-    except Exception:
-        await websocket.send_json({"type": "error", "data": "Unauthorized"})
-        await websocket.close(code=4001)
-        return
-
-    agent = dynamo.get_agent(agent_id)
-    if not agent or agent["user_id"] != user_id:
-        await websocket.send_json({"type": "error", "data": "Agent not found"})
-        await websocket.close(code=4004)
-        return
-
-    sandbox_id = agent.get("container_id")
-    if not sandbox_id:
-        await websocket.send_json({"type": "error", "data": "Agent has no sandbox — start the agent first"})
-        await websocket.close()
-        return
-
-    # Buffer PTY output and forward to WebSocket
-    output_queue: asyncio.Queue = asyncio.Queue()
-
-    def on_pty_data(data: bytes):
-        try:
-            if isinstance(data, str):
-                data = data.encode()
-            import base64
-            output_queue.put_nowait(base64.b64encode(data).decode())
-        except Exception:
-            pass
-
-    try:
-        terminal, actual_sandbox_id = await e2b_service.start_pty(agent_id, sandbox_id, on_pty_data, cols, rows)
-        log.info("PTY started for agent %s sandbox %s", agent_id, actual_sandbox_id)
-
-        # If the sandbox was reprovisioned (expired), persist the new ID
-        if actual_sandbox_id != sandbox_id:
-            log.info("Sandbox rotated %s → %s, updating DB", sandbox_id, actual_sandbox_id)
-            dynamo.update_agent_status(agent_id, "running", actual_sandbox_id)
-
-        # Forward PTY output to browser
-        async def forward_output():
-            while True:
-                try:
-                    data = await asyncio.wait_for(output_queue.get(), timeout=30)
-                    await websocket.send_json({"type": "data", "data": data})
-                except asyncio.TimeoutError:
-                    # keepalive
-                    await websocket.send_json({"type": "ping"})
-                except Exception:
-                    break
-
-        forward_task = asyncio.create_task(forward_output())
-
-        try:
-            while True:
-                raw = await websocket.receive_text()
-                try:
-                    msg = json.loads(raw)
-                    if msg.get("type") == "resize":
-                        await e2b_service.resize_pty(agent_id, msg.get("cols", 80), msg.get("rows", 24))
-                    elif msg.get("type") == "input":
-                        await e2b_service.send_pty_input(agent_id, msg.get("data", ""))
-                except json.JSONDecodeError:
-                    # plain text = keystroke data
-                    await e2b_service.send_pty_input(agent_id, raw)
-        except WebSocketDisconnect:
-            log.info("PTY disconnected for agent %s", agent_id)
-        finally:
-            forward_task.cancel()
-            await e2b_service.kill_pty(agent_id)
-
-    except Exception as e:
-        log.exception("PTY error for agent %s", agent_id)
-        try:
-            await websocket.send_json({"type": "error", "data": str(e)})
-        except Exception:
-            pass
+    finally:
+        ws_connections.labels(ws_type="chat").dec()

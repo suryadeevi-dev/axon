@@ -6,10 +6,10 @@ python-multipart==0.0.9
 boto3==1.34.131
 botocore==1.34.131
 groq==0.9.0
-e2b==1.0.5
 docker==7.1.0
 pydantic==2.7.4
 pydantic-settings==2.3.4
 httpx==0.27.0
 python-dotenv==1.0.1
 pytz==2024.1
+prometheus-fastapi-instrumentator==6.1.0

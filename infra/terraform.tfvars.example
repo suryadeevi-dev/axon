@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars and fill in your values
+# Find the AMI: AWS Console → EC2 → AMI Catalog → Community AMIs
+#               Search "ubuntu 22.04", Owner 099720109477 (Canonical)
+#               Pick latest ubuntu-jammy-22.04-amd64-server-* HVM SSD
+ec2_ami_id = "ami-XXXXXXXXXXXXXXXXX"

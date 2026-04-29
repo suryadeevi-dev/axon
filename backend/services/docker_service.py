@@ -1,49 +1,65 @@
 """
 Agent execution service — three modes, checked in order:
 
-  E2B mode     — if E2B_API_KEY is set (real isolated cloud sandbox, free tier)
-  DOCKER mode  — if Docker socket is available (local / EC2)
-  SUBPROCESS   — fallback for Render free tier (no isolation, demo only)
+  EC2        — if EC2_ENABLED=true + required env vars set (AWS, SSM)
+  DOCKER     — if Docker socket available (local dev)
+  SUBPROCESS — fallback (Render free tier / demo)
 """
 
 import logging
 import os
 import subprocess
 import tempfile
-import asyncio
+import time
 from pathlib import Path
 from typing import Optional
 
+from observability import (
+    sandbox_provision_duration,
+    command_executions,
+    command_duration,
+)
+
 log = logging.getLogger(__name__)
 
-# ── Mode detection ────────────────────────────────────────────────────────────
+# ── Mode detection ─────────────────────────────────────────────────────────────
 _FORCE_SUBPROCESS = os.getenv("AGENT_MODE", "").lower() == "subprocess"
 
-from services import e2b_service
+from services import ec2_service
+
+_USE_EC2 = ec2_service.ec2_available() and not _FORCE_SUBPROCESS
+
 
 def _docker_available() -> bool:
-    if _FORCE_SUBPROCESS or e2b_service.e2b_available():
+    if _FORCE_SUBPROCESS or _USE_EC2:
         return False
     try:
         import docker
-        client = docker.from_env()
-        client.ping()
+        docker.from_env().ping()
         return True
     except Exception:
         return False
 
-_USE_E2B    = e2b_service.e2b_available() and not _FORCE_SUBPROCESS
+
 _USE_DOCKER = _docker_available()
 
-if _USE_E2B:
-    log.info("Agent mode: e2b (isolated cloud sandbox)")
+if _USE_EC2:
+    log.info("Agent mode: ec2 (AWS EC2 + SSM, region=%s)", os.getenv("AWS_REGION", "us-east-1"))
 elif _USE_DOCKER:
     log.info("Agent mode: docker")
 else:
     log.info("Agent mode: subprocess (demo)")
 
 
-# ── Shared workspace dir for subprocess mode ──────────────────────────────────
+def _active_mode() -> str:
+    if _USE_EC2:
+        return "ec2"
+    if _USE_DOCKER:
+        return "docker"
+    return "subprocess"
+
+
+# ── Subprocess workspace ───────────────────────────────────────────────────────
 _BASE_WORKDIR = Path(tempfile.gettempdir()) / "axon-agents"
 _BASE_WORKDIR.mkdir(exist_ok=True)
 
@@ -58,11 +74,11 @@ def _agent_workdir(agent_id: str) -> Path:
 if _USE_DOCKER:
     import docker as _docker_mod
 
-    AGENT_IMAGE = os.getenv("AGENT_IMAGE", "axon-agent-base:latest")
+    AGENT_IMAGE  = os.getenv("AGENT_IMAGE", "axon-agent-base:latest")
     NETWORK_NAME = os.getenv("AGENT_NETWORK", "axon-agents")
-    MEM_LIMIT = os.getenv("AGENT_MEM_LIMIT", "256m")
-    CPU_PERIOD = 100_000
-    CPU_QUOTA = int(os.getenv("AGENT_CPU_QUOTA", "50000"))
+    MEM_LIMIT    = os.getenv("AGENT_MEM_LIMIT", "256m")
+    CPU_PERIOD   = 100_000
+    CPU_QUOTA    = int(os.getenv("AGENT_CPU_QUOTA", "50000"))
 
     def _client():
         return _docker_mod.from_env()
@@ -81,16 +97,20 @@ if _USE_DOCKER:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def provision(agent_id: str, existing_container_id: Optional[str] = None) -> str:
-    if _USE_E2B:
-        return e2b_service.provision(existing_container_id)
+    mode = _active_mode()
+    t0 = time.monotonic()
+
+    if _USE_EC2:
+        result = ec2_service.provision(agent_id, existing_container_id)
+        sandbox_provision_duration.labels(mode=mode).observe(time.monotonic() - t0)
+        return result
 
     if _USE_DOCKER:
         _ensure_network()
         client = _client()
         name = _container_name(agent_id)
         try:
-            old = client.containers.get(name)
-            old.remove(force=True)
+            client.containers.get(name).remove(force=True)
         except _docker_mod.errors.NotFound:
             pass
         container = client.containers.run(
@@ -103,16 +123,20 @@ def provision(agent_id: str, existing_container_id: Optional[str] = None) -> str
             volumes={f"axon-vol-{agent_id[:12]}": {"bind": "/home/axon/workspace", "mode": "rw"}},
             restart_policy={"Name": "unless-stopped"},
         )
+        sandbox_provision_duration.labels(mode=mode).observe(time.monotonic() - t0)
         return container.id
-    else:
-        workdir = _agent_workdir(agent_id)
-        log.info("Subprocess agent provisioned at %s", workdir)
-        return f"subprocess:{agent_id[:12]}"
+
+    workdir = _agent_workdir(agent_id)
+    log.info("Subprocess agent provisioned at %s", workdir)
+    sandbox_provision_duration.labels(mode=mode).observe(time.monotonic() - t0)
+    return f"subprocess:{agent_id[:12]}"
 
 
 def start(agent_id: str, container_id: Optional[str] = None) -> Optional[str]:
-    if _USE_E2B:
-        return e2b_service.provision(container_id)
+    if _USE_EC2:
+        if container_id:
+            return ec2_service.start(container_id)
+        return provision(agent_id)
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)
@@ -123,14 +147,13 @@ def start(agent_id: str, container_id: Optional[str] = None) -> Optional[str]:
             return container.id
         except _docker_mod.errors.NotFound:
             return provision(agent_id)
-    else:
-        workdir = _agent_workdir(agent_id)
-        return f"subprocess:{agent_id[:12]}"
+    return f"subprocess:{agent_id[:12]}"
 
 
 def stop(agent_id: str, container_id: Optional[str] = None):
-    if _USE_E2B:
-        e2b_service.kill_sandbox(container_id)
+    if _USE_EC2:
+        if container_id:
+            ec2_service.stop(container_id)
         return
     if _USE_DOCKER:
         client = _client()
@@ -138,12 +161,12 @@ def stop(agent_id: str, container_id: Optional[str] = None):
             client.containers.get(_container_name(agent_id)).stop(timeout=5)
         except _docker_mod.errors.NotFound:
             pass
-    # subprocess mode: no-op (process exits after each command anyway)
 
 
 def remove(agent_id: str, container_id: Optional[str] = None):
-    if _USE_E2B:
-        e2b_service.kill_sandbox(container_id)
+    if _USE_EC2:
+        if container_id:
+            ec2_service.terminate(container_id)
         return
     if _USE_DOCKER:
         client = _client()
@@ -163,9 +186,32 @@ def remove(agent_id: str, container_id: Optional[str] = None):
             shutil.rmtree(workdir, ignore_errors=True)
 
 
-def exec_command(agent_id: str, command: str, timeout: int = 30, container_id: Optional[str] = None) -> tuple[int, str]:
-    if _USE_E2B:
-        return e2b_service.exec_command(container_id or agent_id, command, timeout)
+def exec_command(
+    agent_id: str,
+    command: str,
+    timeout: int = 30,
+    container_id: Optional[str] = None,
+) -> tuple[int, str]:
+    mode = _active_mode()
+    t0 = time.monotonic()
+    exit_code, output = _exec_raw(agent_id, command, timeout, container_id)
+    elapsed = time.monotonic() - t0
+
+    status = "success" if exit_code == 0 else ("timeout" if "timed out" in output else "error")
+    command_executions.labels(mode=mode, status=status).inc()
+    command_duration.labels(mode=mode).observe(elapsed)
+    return exit_code, output
+
+
+def _exec_raw(
+    agent_id: str,
+    command: str,
+    timeout: int,
+    container_id: Optional[str],
+) -> tuple[int, str]:
+    if _USE_EC2:
+        return ec2_service.exec_command(container_id or agent_id, command, timeout)
+
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)
@@ -183,28 +229,28 @@ def exec_command(agent_id: str, command: str, timeout: int = 30, container_id: O
             return 1, f"Container not found for agent {agent_id}"
         except Exception as e:
             return 1, str(e)
-    else:
-        workdir = _agent_workdir(agent_id)
-        try:
-            result = subprocess.run(
-                ["bash", "-c", command],
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env={**os.environ, "HOME": str(workdir), "TERM": "xterm-256color"},
-            )
-            output = result.stdout + (f"\n{result.stderr}" if result.stderr else "")
-            return result.returncode, output.strip()
-        except subprocess.TimeoutExpired:
-            return 1, f"Command timed out after {timeout}s"
-        except Exception as e:
-            return 1, str(e)
+
+    workdir = _agent_workdir(agent_id)
+    try:
+        result = subprocess.run(
+            ["bash", "-c", command],
+            cwd=str(workdir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={**os.environ, "HOME": str(workdir), "TERM": "xterm-256color"},
+        )
+        output = result.stdout + (f"\n{result.stderr}" if result.stderr else "")
+        return result.returncode, output.strip()
+    except subprocess.TimeoutExpired:
+        return 1, f"Command timed out after {timeout}s"
+    except Exception as e:
+        return 1, str(e)
 
 
 def status(agent_id: str, container_id: Optional[str] = None) -> str:
-    if _USE_E2B:
-        return e2b_service.sandbox_status(container_id)
+    if _USE_EC2:
+        return ec2_service.status(container_id) if container_id else "stopped"
     if _USE_DOCKER:
         client = _client()
         name = _container_name(agent_id)
@@ -215,7 +261,5 @@ def status(agent_id: str, container_id: Optional[str] = None) -> str:
             return "stopped"
         except Exception:
             return "error"
-    else:
-        # In subprocess mode, agents are always "running" once created
-        workdir = _BASE_WORKDIR / agent_id[:12]
-        return "running" if workdir.exists() else "stopped"
+    workdir = _BASE_WORKDIR / agent_id[:12]
+    return "running" if workdir.exists() else "stopped"

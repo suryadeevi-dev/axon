@@ -1,5 +1,5 @@
 services:
-  # ── FastAPI Backend ────────────────────────────────────────────────────────
+  # ── FastAPI Backend ────────────────────────────────────────────────────────────
   - type: web
     name: axon-api
     runtime: python
@@ -8,17 +8,56 @@ services:
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
+      # ── Auth ──────────────────────────────────────────────────────────────────
       - key: JWT_SECRET
         generateValue: true
+
+      # ── AI ────────────────────────────────────────────────────────────────────
       - key: GROQ_API_KEY
         sync: false
-      - key: E2B_API_KEY
+
+      # ── AWS credentials (DynamoDB + EC2 + SSM + S3) ───────────────────────────
+      # Source: terraform output -raw backend_access_key_id / backend_secret_access_key
+      - key: AWS_ACCESS_KEY_ID
         sync: false
-      - key: CORS_ORIGINS
-        value: https://suryadeevi-dev.github.io
-      - key: AGENT_IMAGE
-        value: axon-agent-base:latest
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+
+      # ── DynamoDB ──────────────────────────────────────────────────────────────
+      - key: DYNAMO_USERS_TABLE
+        value: axon-users
+      - key: DYNAMO_AGENTS_TABLE
+        value: axon-agents
+      - key: DYNAMO_MESSAGES_TABLE
+        value: axon-messages
+
+      # ── EC2 agent compute ─────────────────────────────────────────────────────
+      # All values come from `terraform output` after running `terraform apply`
+      - key: EC2_ENABLED
+        value: "true"
+      - key: EC2_AMI_ID
+        sync: false           # terraform output ubuntu_22_ami_id
+      - key: EC2_SUBNET_ID
+        sync: false           # terraform output public_subnet_id
+      - key: EC2_SG_ID
+        sync: false           # terraform output agent_security_group_id
+      - key: EC2_INSTANCE_PROFILE
+        value: axon-agent-instance-profile
+      - key: EC2_INSTANCE_TYPE
+        value: t3.micro
+      - key: EC2_S3_BUCKET
+        sync: false           # terraform output s3_bucket_name
+      - key: EC2_PROVISION_TIMEOUT
+        value: "300"
+      - key: EC2_COMMAND_TIMEOUT
+        value: "30"
+
+      # ── Google OAuth ──────────────────────────────────────────────────────────
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -27,9 +66,10 @@ services:
         value: https://axon-api-lhjm.onrender.com/api/auth/google/callback
       - key: FRONTEND_URL
         value: https://suryadeevi-dev.github.io/axon
-    healthCheckPath: /health
-    autoDeploy: true
 
-  # Note: The agent Docker execution layer requires a machine with Docker.
-  # On Render free tier, agent compute runs in DEMO mode (subprocess isolation).
-  # For full Docker-per-agent isolation, deploy to EC2 via infra/stacks/axon_stack.py
+      # ── CORS ──────────────────────────────────────────────────────────────────
+      - key: CORS_ORIGINS
+        value: https://suryadeevi-dev.github.io
+
+  # EC2 agent instances are provisioned on-demand by the backend via EC2/SSM APIs.
+  # Run `terraform apply` in infra/ to create the VPC, IAM, and S3 resources first.
