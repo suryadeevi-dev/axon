@@ -183,8 +183,13 @@ async def agent_pty(
             pass
 
     try:
-        terminal = await e2b_service.start_pty(agent_id, sandbox_id, on_pty_data, cols, rows)
-        log.info("PTY started for agent %s", agent_id)
+        terminal, actual_sandbox_id = await e2b_service.start_pty(agent_id, sandbox_id, on_pty_data, cols, rows)
+        log.info("PTY started for agent %s sandbox %s", agent_id, actual_sandbox_id)
+
+        # If the sandbox was reprovisioned (expired), persist the new ID
+        if actual_sandbox_id != sandbox_id:
+            log.info("Sandbox rotated %s → %s, updating DB", sandbox_id, actual_sandbox_id)
+            dynamo.update_agent_status(agent_id, "running", actual_sandbox_id)
 
         # Forward PTY output to browser
         async def forward_output():

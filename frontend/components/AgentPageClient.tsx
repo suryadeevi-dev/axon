@@ -3,17 +3,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Send, Loader2, Terminal, MessageSquare, RotateCcw } from "lucide-react";
+import { ArrowLeft, Send, Loader2, Terminal, MessageSquare, RotateCcw, Cpu } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { AgentWebSocket, ChatMessage, WSEvent } from "@/lib/ws";
 import { agentsApi } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
 import toast from "react-hot-toast";
+import ResourcesPanel from "@/components/ResourcesPanel";
 
 const XTerminal = dynamic(() => import("@/components/XTerminal"), { ssr: false });
 
-type Tab = "chat" | "terminal";
+type Tab = "chat" | "terminal" | "resources";
 
 function formatTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -87,6 +88,7 @@ export default function AgentPageClient() {
   const [sending, setSending] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [sandboxReady, setSandboxReady] = useState(false);
+  const [sandboxId, setSandboxId] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<Tab>("chat");
 
   const wsRef = useRef<AgentWebSocket | null>(null);
@@ -114,7 +116,10 @@ export default function AgentPageClient() {
       const { data } = await agentsApi.get(agentId);
       setAgentName(data.agent.name);
       if (data.history?.length) setMessages(data.history);
-      if (data.agent.container_id) setSandboxReady(true);
+      if (data.agent.container_id) {
+        setSandboxReady(true);
+        setSandboxId(data.agent.container_id);
+      }
     } catch {
       toast.error("Failed to load agent");
       router.push("/dashboard");
@@ -127,6 +132,7 @@ export default function AgentPageClient() {
       case "status": {
         const s = event.data as { status?: string; container_id?: string };
         if (s?.status === "running" || s?.container_id) setSandboxReady(true);
+        if (s?.container_id) setSandboxId(s.container_id);
         break;
       }
       case "token": {
@@ -211,12 +217,15 @@ export default function AgentPageClient() {
       </div>
 
       <div className="flex border-b border-axon-border bg-axon-bg px-6">
-        {(["chat", "terminal"] as Tab[]).map((tab) => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${activeTab === tab ? "border-axon-cyan text-axon-cyan" : "border-transparent text-axon-muted hover:text-axon-text"}`}
+        {([
+          { id: "chat",      label: "Chat",      icon: <MessageSquare size={12} /> },
+          { id: "terminal",  label: "Terminal",  icon: <Terminal size={12} /> },
+          { id: "resources", label: "Resources", icon: <Cpu size={12} /> },
+        ] as { id: Tab; label: string; icon: React.ReactNode }[]).map(({ id, label, icon }) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${activeTab === id ? "border-axon-cyan text-axon-cyan" : "border-transparent text-axon-muted hover:text-axon-text"}`}
           >
-            {tab === "chat" ? <MessageSquare size={12} /> : <Terminal size={12} />}
-            {tab === "chat" ? "Chat" : "Terminal"}
+            {icon}{label}
           </button>
         ))}
       </div>
@@ -263,7 +272,7 @@ export default function AgentPageClient() {
               <p className="text-[10px] text-axon-muted mt-1.5 pl-1">Enter to send · Shift+Enter for newline</p>
             </div>
           </>
-        ) : (
+        ) : activeTab === "terminal" ? (
           <div className="flex-1 bg-[#050508]" style={{ minHeight: 0 }}>
             {sandboxReady ? (
               <XTerminal agentId={agentId} sandboxReady={sandboxReady} />
@@ -275,6 +284,8 @@ export default function AgentPageClient() {
               </div>
             )}
           </div>
+        ) : (
+          <ResourcesPanel sandboxReady={sandboxReady} sandboxId={sandboxId} />
         )}
       </div>
     </div>

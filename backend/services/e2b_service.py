@@ -2,7 +2,7 @@
 E2B sandbox service — real isolated Linux containers, free tier.
 
 Each agent maps to one persistent E2B sandbox.
-sandbox_id is stored in DynamoDB as container_id.
+sandbox_id is stored in DynamoDB/memory as container_id.
 
 Modes available (checked in order):
   1. E2B  — if E2B_API_KEY is set
@@ -28,41 +28,60 @@ def e2b_available() -> bool:
     return bool(E2B_API_KEY)
 
 
-def _get_sandbox(sandbox_id: Optional[str] = None):
-    """Get or create an E2B sandbox, reconnecting if sandbox_id is known."""
+def _connect_sandbox(sandbox_id: str):
+    """Reconnect to an existing sandbox. Raises if sandbox is gone."""
     from e2b import Sandbox
-    if sandbox_id:
-        try:
-            sbx = Sandbox.reconnect(sandbox_id, api_key=E2B_API_KEY)
-            sbx.set_timeout(SANDBOX_TIMEOUT)
-            return sbx
-        except Exception:
-            log.info("E2B sandbox %s expired, creating new one", sandbox_id)
+    # e2b 1.x uses Sandbox.connect(); 0.x used Sandbox.reconnect()
+    connect_fn = getattr(Sandbox, "connect", None) or getattr(Sandbox, "reconnect", None)
+    if connect_fn is None:
+        raise RuntimeError("e2b SDK missing connect/reconnect method")
+    sbx = connect_fn(sandbox_id, api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
+    return sbx
+
+
+def _new_sandbox():
+    """Spin up a fresh E2B sandbox."""
+    from e2b import Sandbox
     sbx = Sandbox(api_key=E2B_API_KEY, timeout=SANDBOX_TIMEOUT)
     log.info("E2B sandbox created: %s", sbx.sandbox_id)
     return sbx
 
 
+def _get_sandbox(sandbox_id: Optional[str] = None) -> tuple[object, str]:
+    """
+    Returns (sandbox, actual_sandbox_id).
+    If sandbox_id is provided, reconnects. Falls back to new sandbox on expiry.
+    Callers must persist the returned sandbox_id if it differs from the input.
+    """
+    if sandbox_id:
+        try:
+            sbx = _connect_sandbox(sandbox_id)
+            return sbx, sandbox_id
+        except Exception:
+            log.info("E2B sandbox %s expired or unreachable, provisioning new one", sandbox_id)
+    sbx = _new_sandbox()
+    return sbx, sbx.sandbox_id
+
+
 def provision(sandbox_id: Optional[str] = None) -> str:
-    """Create or reconnect an E2B sandbox. Returns the sandbox_id."""
-    sbx = _get_sandbox(sandbox_id)
-    sbx.commands.run("mkdir -p /home/user/workspace")
-    return sbx.sandbox_id
+    """Create or reconnect an E2B sandbox. Returns the (possibly new) sandbox_id."""
+    sbx, actual_id = _get_sandbox(sandbox_id)
+    try:
+        sbx.commands.run("mkdir -p /home/user/workspace", timeout=10)
+    except Exception:
+        pass
+    return actual_id
 
 
 def exec_command(sandbox_id: str, command: str, timeout: int = 30) -> tuple[int, str]:
     """Run a command in the sandbox, return (exit_code, output)."""
     try:
-        sbx = _get_sandbox(sandbox_id)
+        sbx, _ = _get_sandbox(sandbox_id)
         result = sbx.commands.run(
             f"cd /home/user/workspace && {command}",
             timeout=timeout,
         )
-        output = ""
-        if result.stdout:
-            output += result.stdout
-        if result.stderr:
-            output += result.stderr
+        output = (result.stdout or "") + (result.stderr or "")
         return result.exit_code or 0, output.strip()
     except Exception as e:
         return 1, str(e)
@@ -71,7 +90,7 @@ def exec_command(sandbox_id: str, command: str, timeout: int = 30) -> tuple[int,
 def list_files(sandbox_id: str, path: str = "/home/user/workspace") -> list[dict]:
     """List files in the sandbox filesystem."""
     try:
-        sbx = _get_sandbox(sandbox_id)
+        sbx, _ = _get_sandbox(sandbox_id)
         entries = sbx.files.list(path)
         return [
             {"name": e.name, "path": e.path, "is_dir": e.is_dir, "size": getattr(e, "size", 0)}
@@ -87,8 +106,7 @@ def sandbox_status(sandbox_id: Optional[str]) -> str:
     if not sandbox_id:
         return "stopped"
     try:
-        from e2b import Sandbox
-        Sandbox.reconnect(sandbox_id, api_key=E2B_API_KEY)
+        _connect_sandbox(sandbox_id)
         return "running"
     except Exception:
         return "stopped"
@@ -100,14 +118,15 @@ async def start_pty(
     on_data: Callable[[bytes], None],
     cols: int = 80,
     rows: int = 24,
-) -> object:
+) -> tuple[object, str]:
     """
     Start an interactive PTY session in the sandbox.
     on_data is called with raw terminal bytes to forward to the browser.
-    Returns the terminal object (call send_input / kill on it).
+    Returns (terminal, actual_sandbox_id) — sandbox_id may differ if the
+    original expired and a new one was provisioned; caller should persist it.
     """
     def _start():
-        sbx = _get_sandbox(sandbox_id)
+        sbx, actual_id = _get_sandbox(sandbox_id)
         terminal = sbx.pty.create(
             cols=cols,
             rows=rows,
@@ -116,7 +135,7 @@ async def start_pty(
         )
         terminal.send_input("cd /home/user/workspace && clear\n")
         _pty_sessions[agent_id] = terminal
-        return terminal
+        return terminal, actual_id
 
     return await asyncio.to_thread(_start)
 
