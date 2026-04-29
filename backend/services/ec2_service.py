@@ -22,10 +22,20 @@ import os
 import time
 from typing import Optional
 
+import re
 import boto3
 from botocore.exceptions import ClientError
 
 log = logging.getLogger(__name__)
+
+_EC2_ID_RE = re.compile(r"^i-[0-9a-f]{8,17}$")
+
+
+def _is_ec2_id(instance_id: Optional[str]) -> bool:
+    """Return True only for well-formed EC2 instance IDs (i-*).
+    Guards against stale Docker/subprocess container_ids stored in DynamoDB
+    before EC2 mode was enabled."""
+    return bool(instance_id and _EC2_ID_RE.match(instance_id))
 
 _REGION           = os.getenv("AWS_REGION", "us-east-1")
 _INSTANCE_TYPE    = os.getenv("EC2_INSTANCE_TYPE", "t3.micro")
@@ -81,15 +91,18 @@ def provision(agent_id: str, existing_instance_id: Optional[str] = None) -> str:
     Reconnects to an existing stopped instance before launching a new one.
     """
     if existing_instance_id:
-        current = status(existing_instance_id)
-        if current == "running":
-            return existing_instance_id
-        if current == "stopped":
-            log.info("EC2 starting stopped instance %s for agent %s", existing_instance_id, agent_id)
-            _ec2().start_instances(InstanceIds=[existing_instance_id])
-            _wait_for_ssm(existing_instance_id)
-            return existing_instance_id
-        # terminated / unknown — fall through to launch a new one
+        if not _is_ec2_id(existing_instance_id):
+            log.info("container_id %r is not an EC2 ID (legacy mode) — provisioning new instance", existing_instance_id)
+        else:
+            current = status(existing_instance_id)
+            if current == "running":
+                return existing_instance_id
+            if current == "stopped":
+                log.info("EC2 starting stopped instance %s for agent %s", existing_instance_id, agent_id)
+                _ec2().start_instances(InstanceIds=[existing_instance_id])
+                _wait_for_ssm(existing_instance_id)
+                return existing_instance_id
+            # terminated / unknown — fall through to launch a new one
 
     resp = _ec2().run_instances(
         ImageId=_AMI_ID,
@@ -142,12 +155,18 @@ def _wait_for_ssm(instance_id: str, timeout: int = _PROVISION_TIMEOUT):
 
 
 def start(instance_id: str) -> str:
+    if not _is_ec2_id(instance_id):
+        log.info("start: %r is not an EC2 ID, skipping", instance_id)
+        return instance_id
     _ec2().start_instances(InstanceIds=[instance_id])
     _wait_for_ssm(instance_id)
     return instance_id
 
 
 def stop(instance_id: str):
+    if not _is_ec2_id(instance_id):
+        log.info("stop: %r is not an EC2 ID, skipping", instance_id)
+        return
     try:
         _ec2().stop_instances(InstanceIds=[instance_id])
         log.info("EC2 instance stopped: %s", instance_id)
@@ -156,6 +175,9 @@ def stop(instance_id: str):
 
 
 def terminate(instance_id: str):
+    if not _is_ec2_id(instance_id):
+        log.info("terminate: %r is not an EC2 ID, skipping", instance_id)
+        return
     try:
         _ec2().terminate_instances(InstanceIds=[instance_id])
         log.info("EC2 instance terminated: %s", instance_id)
@@ -164,6 +186,8 @@ def terminate(instance_id: str):
 
 
 def status(instance_id: str) -> str:
+    if not _is_ec2_id(instance_id):
+        return "stopped"
     try:
         resp = _ec2().describe_instances(InstanceIds=[instance_id])
         reservations = resp.get("Reservations", [])
@@ -190,6 +214,8 @@ def exec_command(
     timeout: int = _COMMAND_TIMEOUT,
 ) -> tuple[int, str]:
     """Run a shell command on the EC2 instance via SSM Run Command."""
+    if not _is_ec2_id(instance_id):
+        return 1, f"No EC2 instance for this agent (container_id={instance_id!r}). Start the agent first."
     try:
         resp = _ssm().send_command(
             InstanceIds=[instance_id],
