@@ -44,11 +44,11 @@ def create_table(name: str, pk: str, gsi_list: list):
             kwargs["GlobalSecondaryIndexes"] = gsi_defs
 
         dynamodb.create_table(**kwargs)
-        print(f"  ✓ {name} — created")
+        print(f"  [OK] {name} - created")
     except dynamodb.exceptions.ResourceInUseException:
-        print(f"  · {name} — already exists, skipped")
+        print(f"  [--] {name} - already exists, skipped")
     except Exception as e:
-        print(f"  ✗ {name} — error: {e}")
+        print(f"  [ERR] {name} - error: {e}")
         sys.exit(1)
 
 
@@ -59,6 +59,6 @@ create_table("axon-agents",   pk="id", gsi_list=[{"name": "user_id-index", "key"
 create_table("axon-messages", pk="id", gsi_list=[{"name": "agent_id-timestamp-index", "key": "agent_id", "sort": "timestamp"}])
 
 print("\nDone. Add these to Render environment:")
-print("  AWS_ACCESS_KEY_ID=<your-key>")
-print("  AWS_SECRET_ACCESS_KEY=<your-secret>")
+print("  AWS_ACCESS_KEY_ID=<axon-render-prod key>")
+print("  AWS_SECRET_ACCESS_KEY=<axon-render-prod secret>")
 print(f"  AWS_REGION={REGION}")
