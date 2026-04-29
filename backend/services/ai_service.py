@@ -19,7 +19,9 @@ log = logging.getLogger(__name__)
 
 _client: Optional[AsyncGroq] = None
 
-MODEL = os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile")
+# Primary model and fallback when daily token limit is hit
+MODEL_PRIMARY  = os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile")
+MODEL_FALLBACK = "llama-3.1-8b-instant"  # 500K TPD vs 100K on primary
 
 SYSTEM_PROMPT = """You are AXON, a concise AI assistant with optional access to a Linux sandbox.
 
@@ -90,12 +92,26 @@ async def run_agent_turn(
     for _ in range(max_iterations):
         full_text = ""
 
-        stream = await client.chat.completions.create(
-            model=MODEL,
-            max_tokens=2048,
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + claude_messages,
-            stream=True,
-        )
+        # Try primary model; fall back to faster model on rate-limit (429)
+        try:
+            stream = await client.chat.completions.create(
+                model=MODEL_PRIMARY,
+                max_tokens=2048,
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + claude_messages,
+                stream=True,
+            )
+        except Exception as e:
+            if "rate_limit_exceeded" in str(e) or "429" in str(e):
+                log.warning("Primary model rate-limited, falling back to %s", MODEL_FALLBACK)
+                yield {"type": "token", "data": f"*(rate limited — using {MODEL_FALLBACK})*\n\n"}
+                stream = await client.chat.completions.create(
+                    model=MODEL_FALLBACK,
+                    max_tokens=2048,
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT}] + claude_messages,
+                    stream=True,
+                )
+            else:
+                raise
 
         async for chunk in stream:
             delta = chunk.choices[0].delta.content

@@ -1,124 +1,98 @@
 # AXON — Your Agent. Your Cloud.
 
-Autonomous AI agents with dedicated cloud compute. Chat with your agent in plain language — it writes code, runs commands, and gets real work done on its own Linux environment.
+Autonomous AI agents with dedicated cloud compute. Chat with your agent in plain language — it writes code, runs commands, and gets real work done inside its own isolated Linux sandbox.
 
-**Brand:** Completely original — dark engineering aesthetic, electric cyan + deep charcoal, no relation to SkyKoi.
+**Live:** [suryadeevi-dev.github.io/axon](https://suryadeevi-dev.github.io/axon) · **API:** [axon-api-lhjm.onrender.com](https://axon-api-lhjm.onrender.com)
+
+---
+
+## What it does
+
+- **Agent chat** — talk to your agent in natural language; it reasons, runs commands, and streams results back in real time
+- **Interactive terminal** — full xterm.js PTY connected directly to your agent's sandbox
+- **Isolated sandboxes** — every agent runs in its own E2B cloud container (Ubuntu 22.04, 2 vCPU, 512 MB RAM)
+- **Google SSO + email auth** — sign in with Google or create an account with email/password
+- **Persistent history** — conversations and agent state stored in DynamoDB (survives backend restarts)
+- **Light / dark mode** — toggle in the navbar
 
 ---
 
 ## Architecture
 
 ```
-                   ┌─────────────────────────────────────────────────────┐
-                   │                  AWS (Free Tier)                    │
-                   │                                                     │
-  User ──HTTPS──►  │  CloudFront  ──►  S3 (Next.js static)              │
-                   │                                                     │
-  User ──WS──────► │  EC2 t2.micro                                       │
-                   │  ├─ FastAPI backend (uvicorn)                       │
-                   │  ├─ Docker daemon                                   │
-                   │  │   ├─ axon-agent-{id} (container per user)       │
-                   │  │   └─ axon-agent-{id} ...                        │
-                   │  └─ DynamoDB (users, agents, messages)              │
-                   │                                                     │
-                   │  Cognito (auth, 50K MAU free)                      │
-                   └─────────────────────────────────────────────────────┘
+  Browser (GitHub Pages)
+    │
+    ├─ HTTPS → Render (FastAPI)
+    │           ├─ /api/auth/*       JWT + Google OAuth 2.0
+    │           ├─ /api/agents/*     agent CRUD + start/stop
+    │           ├─ /ws/agents/{id}   chat WebSocket (AI + command loop)
+    │           └─ /ws/agents/{id}/pty  PTY WebSocket (xterm.js ↔ E2B)
+    │
+    ├─ DynamoDB (AWS)               users / agents / messages
+    │
+    └─ E2B (e2b.dev)                isolated Linux sandboxes per agent
+```
+
+### Compute priority (auto-detected at startup)
+```
+E2B available (E2B_API_KEY set)  →  real isolated cloud sandbox
+Docker available                  →  local Docker container
+Neither                          →  subprocess (demo/fallback mode)
 ```
 
 ### Free-tier breakdown
-| Service        | Usage           | Free Tier                  |
-|----------------|-----------------|----------------------------|
-| EC2 t2.micro   | 1 instance      | 750 hrs/month              |
-| DynamoDB       | 3 tables        | 25 GB + 25 WCU/RCU         |
-| S3             | Frontend assets | 5 GB + 20K GET             |
-| CloudFront     | CDN             | 1 TB transfer/month        |
-| Cognito        | Auth            | 50,000 MAU                 |
-| Data transfer  | API responses   | 100 GB/month               |
+| Service         | Usage                          | Free Tier                    |
+|-----------------|--------------------------------|------------------------------|
+| GitHub Pages    | Frontend (Next.js static)      | Unlimited                    |
+| Render          | Backend (FastAPI + uvicorn)    | 750 hrs/month                |
+| E2B             | Agent sandboxes                | 100 hrs/month                |
+| DynamoDB        | users, agents, messages        | 25 GB + 25 WCU/RCU (always)  |
+| Groq            | Llama 3.3 70B (primary AI)     | 100K tokens/day              |
+| Groq            | Llama 3.1 8B (fallback AI)     | 500K tokens/day              |
 
 ---
 
-## Local Development (5 minutes)
+## Local Development
 
-**Prerequisites:** Docker, Node 20+, Python 3.11+
+**Prerequisites:** Python 3.11+, Node 20+
 
 ```bash
-# 1. Clone and configure
 git clone https://github.com/suryadeevi-dev/axon
 cd axon
-cp .env.example .env
-# Edit .env — set JWT_SECRET and ANTHROPIC_API_KEY
+cp .env .env.local   # fill in keys — see Environment Variables below
 
-# 2. Build the agent Docker image
-make build-agent
-
-# 3. Start everything
-make dev
-# → API:      http://localhost:8000
-# → Frontend: http://localhost:3000
-# → Dynamo:   http://localhost:8001
-```
-
-### Manual start (no Docker Compose)
-
-```bash
-# Terminal 1 — DynamoDB Local
-docker run -p 8001:8000 amazon/dynamodb-local -jar DynamoDBLocal.jar -sharedDb -inMemory
-
-# Terminal 2 — Backend
+# Backend
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-DYNAMO_ENDPOINT_URL=http://localhost:8001 uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 
-# Terminal 3 — Frontend
+# Frontend (separate terminal)
 cd frontend
 npm install
 npm run dev
+# → http://localhost:3000
 ```
 
 ---
 
-## Production Deployment (AWS)
+## Production Deployment
 
-### Prerequisites
-- AWS CLI configured (`aws configure`)
-- AWS CDK installed (`npm install -g aws-cdk`)
-- Docker running
+### Backend (Render)
+1. Connect the repo to Render → New Web Service → root dir `backend`
+2. Build: `pip install -r requirements.txt`
+3. Start: `uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1`
+4. Add environment variables (see below)
 
-### One-command deploy
+### Frontend (GitHub Pages)
+Deployed automatically via `.github/workflows/deploy-frontend.yml` on every push to `master`.
 
+### DynamoDB tables (one-time setup)
 ```bash
-export AWS_PROFILE=your-profile
-export AWS_REGION=us-east-1
-
-./scripts/deploy.sh
+# With admin AWS credentials:
+python scripts/create_dynamo_tables.py
 ```
-
-### Step-by-step
-
-```bash
-# 1. Bootstrap CDK (once per account/region)
-make infra-bootstrap
-
-# 2. Deploy infrastructure
-make infra-deploy
-# Outputs: EC2 IP, CloudFront URL, table names
-
-# 3. Configure the EC2 instance
-EC2_IP=$(aws cloudformation describe-stacks \
-  --stack-name AxonStack \
-  --query 'Stacks[0].Outputs[?OutputKey==`ApiPublicIp`].OutputValue' \
-  --output text)
-
-# Copy environment file
-scp .env ubuntu@$EC2_IP:~/axon/.env
-
-# Restart the API service
-ssh ubuntu@$EC2_IP "sudo systemctl restart axon-api && sudo systemctl status axon-api"
-
-# 4. Deploy frontend
-make deploy-frontend
-```
+Creates: `axon-users`, `axon-agents`, `axon-messages` with required GSIs.
 
 ---
 
@@ -126,92 +100,65 @@ make deploy-frontend
 
 ```
 axon/
-├── frontend/                  # Next.js 14 App Router
+├── frontend/                    # Next.js 14 App Router (static export)
 │   ├── app/
-│   │   ├── page.tsx           # Landing page
-│   │   ├── (auth)/login/      # Sign in
-│   │   ├── (auth)/signup/     # Create account
-│   │   ├── dashboard/         # Agents dashboard
-│   │   └── agent/[id]/        # Agent chat + terminal
+│   │   ├── page.tsx             # Landing page
+│   │   ├── (auth)/login/        # Sign in
+│   │   ├── (auth)/signup/       # Create account
+│   │   ├── dashboard/           # Agent dashboard
+│   │   └── agent/[id]/          # Agent chat + terminal + resources
 │   ├── components/
-│   │   ├── Navbar.tsx
-│   │   ├── AgentCard.tsx
-│   │   └── AgentChat.tsx
+│   │   ├── AgentPageClient.tsx  # Main agent page (chat / terminal / resources tabs)
+│   │   ├── XTerminal.tsx        # xterm.js PTY component
+│   │   ├── ResourcesPanel.tsx   # Sandbox + model specs display
+│   │   ├── Navbar.tsx           # Nav + theme toggle
+│   │   └── ThemeToggle.tsx      # Light/dark mode
 │   └── lib/
-│       ├── api.ts             # Axios client
-│       ├── auth.ts            # JWT / cookie helpers
-│       └── ws.ts              # WebSocket client
+│       ├── api.ts               # Axios REST client
+│       ├── auth.ts              # JWT + cookie helpers
+│       └── ws.ts                # WebSocket client (auto-reconnect)
 │
-├── backend/                   # FastAPI
-│   ├── main.py                # App entrypoint + CORS
+├── backend/                     # FastAPI (Python 3.11)
+│   ├── main.py                  # App entrypoint + CORS
 │   ├── api/
-│   │   ├── auth.py            # /api/auth/* (signup, login, me)
-│   │   ├── agents.py          # /api/agents/* (CRUD + start/stop)
-│   │   └── ws.py              # /ws/agents/{id} (WebSocket)
+│   │   ├── auth.py              # signup, login, Google OAuth callback
+│   │   ├── agents.py            # agent CRUD, start/stop, files
+│   │   └── ws.py                # chat WS + PTY WS endpoints
 │   ├── services/
-│   │   ├── docker_service.py  # Container lifecycle management
-│   │   └── ai_service.py      # Claude agent loop (stream tokens + exec cmds)
-│   ├── db/dynamo.py           # DynamoDB operations
-│   └── models/                # Pydantic models
-│
-├── docker/
-│   └── agent-base/            # Ubuntu 22.04 + Python + Node + common tools
-│
-├── infra/                     # AWS CDK (Python)
-│   ├── app.py
-│   └── stacks/axon_stack.py   # VPC, EC2, S3, CF, DynamoDB, Cognito, IAM
+│   │   ├── ai_service.py        # Groq agent loop (stream tokens + exec cmds)
+│   │   ├── e2b_service.py       # E2B sandbox lifecycle + PTY
+│   │   └── docker_service.py    # Compute mode routing (E2B / Docker / subprocess)
+│   └── db/
+│       └── dynamo.py            # DynamoDB + in-memory fallback
 │
 ├── scripts/
-│   └── deploy.sh              # Full production deploy
-├── docker-compose.yml         # Local dev stack
-├── Makefile                   # Common commands
-└── .env.example               # Environment template
+│   ├── create_dynamo_tables.py  # One-time DynamoDB table setup
+│   └── iam_dynamo_policy.json   # Least-privilege IAM policy template
+│
+└── render.yaml                  # Render deployment config
 ```
-
----
-
-## Key Design Decisions
-
-### Agent compute model
-Each agent is a **Docker container on the EC2 host**, not a separate EC2 instance. This is the free-tier-compatible approach: one t2.micro hosts the API and N agent containers. For production scale, this maps cleanly to ECS per-task or separate EC2 per tier.
-
-### Agent intelligence
-The AI service (`backend/services/ai_service.py`) uses a simple agentic loop:
-1. Claude generates a response that may include `<cmd>...</cmd>` tags
-2. Commands are executed via `docker exec` in the agent's container
-3. Output is fed back to Claude as context
-4. Loop continues until Claude produces a pure text response (no commands)
-
-This is intentionally simple and production-ready — no tool-calling framework lock-in.
-
-### Auth
-JWT-based (no Cognito dependency at runtime). The Cognito User Pool is provisioned but the default auth uses bcrypt+JWT directly, keeping the API portable. Swap to Cognito by implementing the cognito_service.
-
-### WebSocket reconnect
-The frontend WS client does exponential backoff with up to 5 reconnect attempts. Agent state is persisted in DynamoDB so context survives reconnects.
 
 ---
 
 ## Environment Variables
 
-| Variable               | Description                                  | Default              |
-|------------------------|----------------------------------------------|----------------------|
-| `JWT_SECRET`           | JWT signing secret (required)                | —                    |
-| `ANTHROPIC_API_KEY`    | Claude API key (required)                    | —                    |
-| `AWS_REGION`           | AWS region                                   | `us-east-1`          |
-| `DYNAMO_ENDPOINT_URL`  | Override for DynamoDB Local                  | AWS endpoint         |
-| `AGENT_IMAGE`          | Docker image for agent containers            | `axon-agent-base`    |
-| `AGENT_MEM_LIMIT`      | Per-container memory limit                   | `256m`               |
-| `CORS_ORIGINS`         | Comma-separated allowed origins              | `http://localhost:3000` |
+### Backend (Render)
+| Variable                | Description                                      | Required |
+|-------------------------|--------------------------------------------------|----------|
+| `JWT_SECRET`            | JWT signing secret (32+ chars)                   | Yes      |
+| `GROQ_API_KEY`          | Groq API key (free at console.groq.com)          | Yes      |
+| `E2B_API_KEY`           | E2B API key (free at e2b.dev)                    | Yes      |
+| `AWS_ACCESS_KEY_ID`     | IAM user key (least-privilege DynamoDB only)     | Yes      |
+| `AWS_SECRET_ACCESS_KEY` | IAM user secret                                  | Yes      |
+| `AWS_REGION`            | DynamoDB region                                  | `us-east-1` |
+| `GOOGLE_CLIENT_ID`      | Google OAuth client ID                           | Yes      |
+| `GOOGLE_CLIENT_SECRET`  | Google OAuth client secret                       | Yes      |
+| `GOOGLE_REDIRECT_URI`   | `https://<render-url>/api/auth/google/callback`  | Yes      |
+| `FRONTEND_URL`          | `https://suryadeevi-dev.github.io/axon`          | Yes      |
+| `CORS_ORIGINS`          | Comma-separated allowed origins                  | Yes      |
 
----
-
-## Roadmap
-
-- [ ] Custom domain + ACM certificate via CDK
-- [ ] Agent file browser (list/download workspace files)
-- [ ] Shared agent sessions (invite collaborators)
-- [ ] Agent scheduling (cron jobs)
-- [ ] Swap Claude API for Amazon Bedrock (native AWS)
-- [ ] Auto-suspend idle agents (save EC2 resources)
-- [ ] ECS Fargate migration path for multi-user scale
+### Frontend (GitHub Pages / build)
+| Variable                | Description               | Default               |
+|-------------------------|---------------------------|-----------------------|
+| `NEXT_PUBLIC_API_URL`   | Backend REST URL          | `http://localhost:8000` |
+| `NEXT_PUBLIC_WS_URL`    | Backend WebSocket URL     | `ws://localhost:8000`   |

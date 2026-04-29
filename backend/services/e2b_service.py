@@ -127,12 +127,15 @@ async def start_pty(
     """
     def _start():
         sbx, actual_id = _get_sandbox(sandbox_id)
+        # e2b 1.x: create() doesn't accept cols/rows; set size via resize() after
         terminal = sbx.pty.create(
-            cols=cols,
-            rows=rows,
             on_data=on_data,
             timeout=SANDBOX_TIMEOUT,
         )
+        try:
+            terminal.resize(cols=cols, rows=rows)
+        except Exception:
+            pass
         terminal.send_input("cd /home/user/workspace && clear\n")
         _pty_sessions[agent_id] = terminal
         return terminal, actual_id

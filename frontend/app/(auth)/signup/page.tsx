@@ -83,7 +83,7 @@ export default function SignupPage() {
                   required
                 />
                 <button type="button" onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-axon-muted hover:text-white">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-axon-muted hover:text-axon-text">
                   {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
@@ -102,7 +102,7 @@ export default function SignupPage() {
             </div>
 
             <button type="submit" disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:bg-white transition-colors disabled:opacity-60">
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-axon-cyan text-axon-bg font-semibold text-sm hover:opacity-90 transition-opacity disabled:opacity-60">
               {loading && <Loader2 size={14} className="animate-spin" />}
               {loading ? "Creating account…" : "Create account"}
             </button>
