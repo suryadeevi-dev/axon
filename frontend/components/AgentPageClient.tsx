@@ -11,6 +11,7 @@ import { agentsApi } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
 import toast from "react-hot-toast";
 import ResourcesPanel from "@/components/ResourcesPanel";
+import MarkdownContent from "@/components/MarkdownContent";
 
 const XTerminal = dynamic(() => import("@/components/XTerminal"), { ssr: false });
 
@@ -59,7 +60,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
                 : "bg-axon-surface border border-axon-border text-axon-text rounded-bl-sm"
             }`}
           >
-            {msg.content}
+            {isUser ? msg.content : <MarkdownContent content={msg.content} />}
           </div>
         )}
         <div className={`text-[10px] text-axon-muted mt-1 ${isUser ? "text-right" : "text-left"}`}>
@@ -285,7 +286,7 @@ export default function AgentPageClient() {
             )}
           </div>
         ) : (
-          <ResourcesPanel sandboxReady={sandboxReady} sandboxId={sandboxId} />
+          <ResourcesPanel sandboxReady={sandboxReady} sandboxId={sandboxId} agentId={agentId} />
         )}
       </div>
     </div>

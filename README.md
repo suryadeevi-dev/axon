@@ -8,7 +8,7 @@ Autonomous AI agents with dedicated AWS compute. Chat with your agent in plain l
 
 ## What it does
 
-- **Agent chat** — talk to your agent in natural language; it reasons, runs commands via SSM, and streams results in real time
+- **Agent chat** — talk to your agent in natural language; responses are rendered as rich markdown with syntax-highlighted code blocks, lists, and inline formatting
 - **Dedicated EC2 compute** — every agent runs in its own EC2 instance (Ubuntu 22.04, t3.micro) with a persistent EBS workspace
 - **Google SSO + email auth** — sign in with Google or create an account with email/password
 - **Persistent history** — conversations and agent state stored in DynamoDB
@@ -175,8 +175,9 @@ axon/
 │   │   ├── dashboard/           # agent list
 │   │   └── agent/[id]/          # chat + resources
 │   ├── components/
-│   │   ├── AgentPageClient.tsx  # main agent UI
-│   │   ├── ResourcesPanel.tsx   # instance + model specs
+│   │   ├── AgentPageClient.tsx  # main agent UI (chat + tabs)
+│   │   ├── MarkdownContent.tsx  # react-markdown renderer (syntax highlighting)
+│   │   ├── ResourcesPanel.tsx   # live EC2/model specs + S3 file listing
 │   │   └── Navbar.tsx
 │   └── lib/
 │       ├── api.ts               # Axios REST client

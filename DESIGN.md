@@ -178,5 +178,7 @@ Custom JWT rather than Cognito/Auth0 — portable across any Python host. Google
 
 - **Brand:** dark engineering aesthetic — `#0a0a12` background, `#22d3ee` electric cyan, monospace accents
 - **Light/dark mode:** `next-themes` with RGB CSS custom properties so Tailwind opacity modifiers (`/50`) work across themes
-- **Agent page tabs:** Chat (streaming AI conversation + SSM command output), Resources (instance + model specs)
+- **Agent page tabs:**
+  - *Chat* — streams AI tokens in real time; assistant messages rendered as rich markdown via `react-markdown` + `remark-gfm`. Code blocks are syntax-highlighted with `react-syntax-highlighter` (One Dark theme). User messages stay plain text.
+  - *Resources* — live EC2 instance info (type, status, instance ID), model specs, capabilities checklist, and a live S3 workspace file listing that fetches from `GET /api/agents/{id}/files` with a manual refresh button.
 - **Responsive:** full-width mobile, max-width 4xl desktop

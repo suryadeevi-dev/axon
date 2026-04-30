@@ -60,6 +60,8 @@ export const agentsApi = {
   delete: (id: string) => api.delete(`/api/agents/${id}`),
 
   history: (id: string) => api.get(`/api/agents/${id}/history`),
+
+  files: (id: string) => api.get(`/api/agents/${id}/files`),
 };
 
 export default api;
