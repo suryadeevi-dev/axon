@@ -25,7 +25,8 @@ output "s3_bucket_name" {
 
 output "ubuntu_22_ami_id" {
   description = "Copy to Render env: EC2_AMI_ID"
-  value       = var.ec2_ami_id
+  value       = data.aws_ssm_parameter.ubuntu_22_ami.value
+  sensitive   = true
 }
 
 output "backend_iam_user" {

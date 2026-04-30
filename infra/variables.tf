@@ -34,12 +34,3 @@ variable "public_subnet_cidr" {
   default     = "10.0.1.0/24"
 }
 
-variable "ec2_ami_id" {
-  description = <<-EOT
-    Ubuntu 22.04 LTS AMI for agent instances.
-    Find it in AWS Console → EC2 → AMI Catalog → search "ubuntu 22.04" → Community AMIs
-    or ask Canonical's account (099720109477).
-    Example us-east-1 value: ami-0fc5d935ebf8bc3bc
-  EOT
-  type        = string
-}

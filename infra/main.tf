@@ -28,3 +28,8 @@ provider "aws" {
 }
 
 data "aws_caller_identity" "current" {}
+
+# Official Ubuntu 22.04 LTS HVM SSD AMI — Canonical's public SSM path, no DescribeImages needed.
+data "aws_ssm_parameter" "ubuntu_22_ami" {
+  name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+}
